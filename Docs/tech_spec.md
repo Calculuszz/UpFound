@@ -11,9 +11,9 @@
 
 | ส่วน            | ผู้รับผิดชอบ | ขอบเขต                                                                            |
 | --------------- | ------------ | --------------------------------------------------------------------------------- |
-| **Edge AI**     | คน A         | source → detect → encode → emit event (replay / CCTV adapter / fallback)          |
-| **Workflow AI** | คน B         | ingest → cascade match → journey → confidence/abstain → verification → claim pass |
-| **Web App**     | คน C         | ฟอร์มแจ้ง, แสดง candidate + หลักฐาน, พิสูจน์ตัวตน, รับ QR                         |
+| **Edge AI**     | คน A (นัช)        | source → detect → encode → emit event (replay / CCTV adapter / fallback)          |
+| **Workflow AI** | คน B (แม็ค)        | ingest → cascade match → journey → confidence/abstain → verification → claim pass |
+| **Web App**     | คน C (คลัง)        | ฟอร์มแจ้ง, แสดง candidate + หลักฐาน, พิสูจน์ตัวตน, รับ QR                         |
 
 ```
 [คลิป/Edge/CCTV] --produce--> | Event Contract | --consume--> [Workflow AI] <--> [Web App]
@@ -109,7 +109,7 @@ confidence ต้อง **calibrated** และระบบต้อง **absta
 | -------------------- | ------------------------------------------ | --------------------------------------------------------- |
 | ภาษา                 | Python                                     | —                                                         |
 | Decode               | OpenCV (`VideoCapture`)                    | คลิปไฟล์เดียวพอ; ขยับไป PyAV/decord ถ้าต้องการ perf/codec |
-| Detection + Tracking | Ultralytics YOLO v11 (ByteTrack)           | COCO มี backpack/handbag/suitcase                         |
+| Detection + Tracking | Ultralytics YOLO v26 (ByteTrack)           | COCO มี backpack/handbag/suitcase                         |
 | Embedding            | OpenCLIP ViT-B/32 (512-d)                  | รองรับ image→image และ text→image                         |
 | Schema               | Pydantic                                   | validate + versioning                                     |
 | Transport            | JSONL (เดโม) → Redis Stream / Kafka (จริง) | decouple + กัน backpressure                               |
