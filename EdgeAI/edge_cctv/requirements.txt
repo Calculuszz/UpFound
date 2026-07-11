@@ -1,0 +1,14 @@
+# Runtime
+# NOTE: lower bounds chosen to support Python 3.13/3.14 (torch/numpy need
+# recent builds). For a more battle-tested production stack, use Python 3.12
+# and pin exact versions instead.
+opencv-python>=4.10
+ultralytics>=8.4.0        # YOLO26 weights ship from the v8.4.0 assets release
+open_clip_torch>=2.24.0
+torch>=2.9.0
+pillow>=10.4.0
+numpy>=2.1.0
+redis>=5.0.8          # optional: only if EDGE_PUBLISH_BACKEND=redis
+
+# Test
+pytest>=8.3.2
