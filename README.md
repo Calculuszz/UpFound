@@ -74,7 +74,7 @@ Static HTML + Bootstrap 5 ต่อกับ backend ผ่าน `upfound.js` (
 
 ---
 
-## เริ่มใช้งาน (บน DGX Spark)
+## เริ่มใช้งาน (บน DGX Spark) คลังไม่ต้องสนใจอันนี้
 
 ```bash
 # 1. รัน EdgeAI สร้าง event จากคลิป (เปิด CLIP embedding ด้วย = ไม่ใส่ --no-embed)
