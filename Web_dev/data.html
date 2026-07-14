@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upfound</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+        <!-- Nav-Bar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm ub-bg">
+        <div class="container-fluid ub-bg pd">
+            <a href="index.html"><img src="Asset/UPFOUND.svg" alt="Company Logo" class = "Logo"></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-lg-center">
+                    <li class="nav-item">
+                        <a class="nav-link" href="index.html">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="About.html">About</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="Support.html">Support</a>
+                    </li>
+                    <li class="nav-item ms-lg-3">
+                        <a class="btn btn-light" href="login.html">Login</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <div class = "data-section d-flex align-item-center">
+        <div class="container-fluid full-blue">
+            <div class="row text-center">
+                <div class="data-heading form-heading">
+                    <h1>คลังข้อมูลของหายหรือบุคคลหาย</h1>
+                </div>
+                <div class="search">
+                    <input type="text" id = "search-bar" name = "SearchBar" class="search-bar" placeholder="ค้นหาข้อมูล" >
+                    <a class = "btn btn-light btn-search" id="search-btn" href="#" role="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" class="mw-2"><!--!Font Awesome Free v7.3.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M480 272C480 317.9 465.1 360.3 440 394.7L566.6 521.4C579.1 533.9 579.1 554.2 566.6 566.7C554.1 579.2 533.8 579.2 521.3 566.7L394.7 440C360.3 465.1 317.9 480 272 480C157.1 480 64 386.9 64 272C64 157.1 157.1 64 272 64C386.9 64 480 157.1 480 272zM272 416C351.5 416 416 351.5 416 272C416 192.5 351.5 128 272 128C192.5 128 128 192.5 128 272C128 351.5 192.5 416 272 416z"/></svg>
+                    </a>
+                </div>
+                <div class="data-display row g-4 justify-content-center" id="data-display">
+                    <div class="col-12 col-sm-6 col-lg-4">
+                        <div class="report-card">
+                            <div class="report-card-media">
+                                <img src="https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=300&h=200&fit=crop" alt="ชื่อสิ่งของ" class="report-card-img">
+                            </div>
+                            <div class="report-card-body text-start">
+                                <p class="report-card-line"><span class="report-card-label">ชื่อ :</span> นัชชพล</p>
+                                <p class="report-card-line"><span class="report-card-label">รายละเอียด :</span>เป็นฝรั่ง ผิวแทน เดินทางมาเที่ยวประเทศไทย</p>
+                                <p class="report-card-reward">รางวัล : 50,000 บาท</p>
+                                <div class="report-status status-progress">
+                                    <svg viewBox="0 0 24 24" class="status-icon"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                                    <span>in progress</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6 col-lg-4">
+                        <div class="report-card report-card-success">
+                            <div class="report-card-media">
+                                <div class="report-media-placeholder">
+                                    <svg viewBox="0 0 640 640" class="report-media-icon"><path d="M272 64C257.7 64 245.2 73.6 241.4 87.4L217.1 176L64 176C46.3 176 32 190.3 32 208L32 496C32 522.5 53.5 544 80 544L464 544C490.5 544 512 522.5 512 496L512 208C512 190.3 497.7 176 480 176L326.9 176L302.6 87.4C298.8 73.6 286.3 64 272 64L272 64zM244 240C230.7 240 220 250.7 220 264C220 277.3 230.7 288 244 288L300 288C313.3 288 324 277.3 324 264C324 250.7 313.3 240 300 240L244 240z"/></svg>
+                                </div>
+                            </div>
+                            <div class="report-card-body text-start">
+                                <p class="report-card-line"><span class="report-card-label">ชื่อ :</span> กระเป๋าเงิน</p>
+                                <p class="report-card-line"><span class="report-card-label">รายละเอียด :</span>สีดำ มีบัตรประชาชน ทำจากหนังแท้</p>
+                                <p class="report-card-reward">รางวัล : Donation**</p>
+                                <div class="report-status status-success">
+                                    <svg viewBox="0 0 24 24" class="status-icon"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+                                    <span>success</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6 col-lg-4">
+                        <div class="report-card">
+                            <div class="report-card-media">
+                                <div class="report-media-placeholder">
+                                    <svg viewBox="0 0 640 640" class="report-media-icon"><path d="M272 64C257.7 64 245.2 73.6 241.4 87.4L217.1 176L64 176C46.3 176 32 190.3 32 208L32 496C32 522.5 53.5 544 80 544L464 544C490.5 544 512 522.5 512 496L512 208C512 190.3 497.7 176 480 176L326.9 176L302.6 87.4C298.8 73.6 286.3 64 272 64L272 64zM244 240C230.7 240 220 250.7 220 264C220 277.3 230.7 288 244 288L300 288C313.3 288 324 277.3 324 264C324 250.7 313.3 240 300 240L244 240z"/></svg>
+                                </div>
+                            </div>
+                            <div class="report-card-body text-start">
+                                <p class="report-card-line"><span class="report-card-label">ชื่อ :</span>พวงกุญแจ</p>
+                                <p class="report-card-line"><span class="report-card-label">รายละเอียด :</span>ลายคิดตี้ มีกุญแจหลายดอก</p>
+                                <p class="report-card-reward">รางวัล : 300 บาท</p>
+                                <div class="report-status status-progress">
+                                    <svg viewBox="0 0 24 24" class="status-icon"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                                    <span>in progress</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Footer -->
+    <div class="footer-section">
+        <div class="container">
+            <div class="row justify-content-center text-center">
+                <p class="sfw mb-0">&copy; 2026 Upfound Co. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
