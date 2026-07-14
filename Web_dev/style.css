@@ -119,6 +119,11 @@ body {
     margin-bottom: 24px;
 }
 
+.mw-2 {
+    width: 100%;
+    max-width: 25px;
+}
+
 .mw path {
     fill: #136DCF;
 }
@@ -322,4 +327,136 @@ select {
 
 .login-link:hover {
     text-decoration: underline;
+}
+
+/*Data Page*/
+
+.data-heading {
+    margin-bottom: 40px;
+}
+
+.search-bar {
+    margin: 0px 20px;
+    padding: 5px 20px;
+    width: 100%;
+    max-width: 60vw;
+    min-width: 100px;
+    border : none;
+    border-radius: 30px;
+}
+
+.btn-search {
+    border-radius: 30px;
+}
+
+.data-display {
+    padding-bottom: 20px;
+}
+
+.report-card {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    overflow: hidden;
+    height: 100%;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.report-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+}
+
+.report-card-success {
+    border: 2px solid #16a34a;
+}
+
+.report-card-media {
+    height: 160px;
+    background-color: #f1f5f9;
+}
+
+.report-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.report-media-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.report-media-icon {
+    width: 48px;
+    height: 48px;
+    fill: #b7c3d1;
+}
+
+.report-card-body {
+    padding: 16px 18px;
+}
+
+.report-card-line {
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+    color: #1a1a1a;
+}
+
+.report-card-label {
+    font-weight: 500;
+}
+
+.report-card-reward {
+    margin: 8px 0;
+    font-weight: 600;
+    color: #16a34a;
+}
+
+.report-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.status-icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.status-progress {
+    color: #64748b;
+}
+
+.status-success {
+    color: #16a34a;
+}
+
+/* About / Support pages */
+
+.feature-title-h2 {
+    font-size: 1.15rem;
+    font-weight: 500;
+    margin: 16px 0 12px;
+}
+
+.accordion-button:not(.collapsed) {
+    color: #136DCF;
+    background-color: #eaf3fd;
+    box-shadow: none;
+}
+
+.accordion-button:focus {
+    box-shadow: 0 0 0 0.2rem rgba(19, 109, 207, 0.15);
 }
