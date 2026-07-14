@@ -10,23 +10,45 @@ from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
+# Detector selection — swap the object detector without touching dwell logic.
+# ---------------------------------------------------------------------------
+#   EDGE_DETECTOR=yolo   → yolo26x, fixed COCO classes (default)
+#   EDGE_DETECTOR=yoloe  → YOLOE open-vocabulary, prompt-driven classes
+#
+# YOLOE detects things COCO has no class for (e.g. "tablet") by naming them as
+# text prompts. The detector-specific block near the bottom of this file swaps
+# ITEM_CLASSES / thresholds / weights / model_version accordingly, so everything
+# downstream (filters, dwell, event object_class) works unchanged either way.
+DETECTOR = os.getenv("EDGE_DETECTOR", "yolo").strip().lower()
+
+# ---------------------------------------------------------------------------
 # Model / contract
 # ---------------------------------------------------------------------------
-# MUST match Process 2 (matching) — the backend keys off this string.
-# NOTE: changing the YOLO model changes this contract string, so the replay
-# producer (clip_to_events.py) and Process 2 MUST be updated to the same value.
-ACTIVE_MODEL_VERSION = "yolo26m_clip-vitb32"
+# ⚠️ EVENT CONTRACT SYNC REQUIRED ⚠️
+# ACTIVE_MODEL_VERSION is part of the Event Contract — the backend (Process 2
+# matching) and the replay producer (clip_to_events.py) key off this exact
+# string. It depends on the active DETECTOR (set in the block at the bottom):
+#     yolo  → "yolo26x_clip-vitb32"
+#     yoloe → "yoloe11l_clip-vitb32"
+# If you change detector/model, Process 2 + replay producer MUST use the SAME
+# string, or events from this producer will mismatch/be dropped.
 SCHEMA_VERSION = "1.0"
 
-# YOLO weights + CLIP model. Kept together so model_version stays coherent.
-# yolo26m: YOLO26 medium — better accuracy from overhead CCTV (mAP 53.1).
-YOLO_WEIGHTS = os.getenv("EDGE_YOLO_WEIGHTS", "yolo26m.pt")
+# CLIP model (shared by both detectors — the embedding half of model_version).
 CLIP_MODEL_NAME = os.getenv("EDGE_CLIP_MODEL", "ViT-B-32")
 CLIP_PRETRAINED = os.getenv("EDGE_CLIP_PRETRAINED", "openai")
 
 # Input resolution for YOLO inference. Larger = better for small/distant objects
-# but slower. 640 is default; 1280 recommended for elevated CCTV cameras.
-IMGSZ = int(os.getenv("EDGE_IMGSZ", "1280"))
+# but slower and more memory-hungry. Must be a multiple of 32. High default for
+# elevated CCTV (small/distant items); override via EDGE_IMGSZ.
+# ⚠️ On unified-memory boxes (e.g. DGX Spark) GPU OOM == whole-system OOM —
+# raise this in steps and watch /proc/meminfo, don't jump straight to a max.
+IMGSZ = int(os.getenv("EDGE_IMGSZ", "1920"))
+
+# FP16 (half-precision) inference — ~1.5-2x faster on tensor-core GPUs
+# (Blackwell/GB10) with half the activation memory; accuracy loss is negligible.
+# Only applied when CUDA is actually available (detector guards this).
+HALF = os.getenv("EDGE_HALF", "1") not in ("0", "false", "False")
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +94,7 @@ CONF_BY_CLASS: dict[int, float] = {
     26: 0.10,  # handbag
     28: 0.10,  # suitcase
     63: 0.10,  # laptop
-    67: 0.55,  # cell phone — คงสูงไว้ กัน false positive
+    67: 0.10,  # cell phone — คงสูงไว้ กัน false positive
     73: 0.45,  # book
     25: 0.40,  # umbrella
 }
@@ -84,6 +106,39 @@ PERSON_CONF = float(os.getenv("EDGE_PERSON_CONF", "0.35"))
 # spurious detections that YOLO occasionally emits on background texture.
 # Set very low (10) for overhead CCTV where objects appear small.
 MIN_BBOX_SIDE = int(os.getenv("EDGE_MIN_BBOX_SIDE", "10"))
+
+
+# ---------------------------------------------------------------------------
+# Detector-specific resolution — turns DETECTOR into concrete model + classes.
+# Everything above is the yolo (COCO) default; the yoloe branch OVERRIDES the
+# class map / thresholds / weights / contract so downstream code is unchanged.
+# ---------------------------------------------------------------------------
+if DETECTOR == "yoloe":
+    # YOLOE open-vocab weights (seg head; masks unused). ~68MB, auto-downloaded.
+    YOLO_WEIGHTS = os.getenv("EDGE_YOLOE_WEIGHTS", "yoloe-11l-seg.pt")
+    # Comma-separated text prompts; their ORDER defines the class ids. Keep
+    # near-duplicates OUT (e.g. don't list both "tablet" and "wallet") — over-
+    # lapping prompts make the per-frame class flicker (majority-vote still
+    # resolves the fired event's class, but it's noisier). Add e.g. "wallet",
+    # "water bottle", "headphones" via EDGE_YOLOE_PROMPTS when you need them.
+    YOLOE_PROMPTS = [
+        p.strip() for p in os.getenv(
+            "EDGE_YOLOE_PROMPTS",
+            "backpack,handbag,suitcase,laptop,tablet,umbrella,book",
+        ).split(",") if p.strip()
+    ]
+    ITEM_CLASSES = {i: name for i, name in enumerate(YOLOE_PROMPTS)}
+    PERSON_CLASS_ID = len(YOLOE_PROMPTS)  # "person" is appended by the tracker
+    # Open-vocab confidence runs lower than COCO; one floor for all prompts
+    # (dwell + owner-left still gate false fires). Tune via EDGE_YOLOE_CONF.
+    CONF_MIN = float(os.getenv("EDGE_YOLOE_CONF", "0.25"))
+    CONF_BY_CLASS = {i: CONF_MIN for i in ITEM_CLASSES}
+    ACTIVE_MODEL_VERSION = "yoloe11l_clip-vitb32"
+else:
+    # yolo26x: YOLO26 extra-large — highest COCO accuracy for overhead CCTV
+    # (mAP 56.8). Auto-downloaded (~113MB) on first use if not present.
+    YOLO_WEIGHTS = os.getenv("EDGE_YOLO_WEIGHTS", "yolo26x.pt")
+    ACTIVE_MODEL_VERSION = "yolo26x_clip-vitb32"
 
 # Only fire "abandoned" if the object was seen MOVING before it went still.
 # A genuinely abandoned item is carried in then set down; permanent fixtures /

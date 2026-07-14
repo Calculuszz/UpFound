@@ -1,0 +1,7 @@
+# Backend deps (install into the shared ~/upfound-env so we reuse EdgeAI's CLIP).
+# NOTE: torch / open_clip / numpy come from EdgeAI's env — do NOT reinstall torch.
+fastapi
+uvicorn[standard]
+pyjwt
+bcrypt
+python-multipart
