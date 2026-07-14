@@ -222,7 +222,10 @@ def test_t4_event_schema(monkeypatch):
     ev = em.emit_event(FakeFrame(), (10, 20, 50, 80), track_id=7, cls=24, ts=ts)
 
     assert ev["schema_version"] == config.SCHEMA_VERSION
-    assert ev["model_version"] == config.ACTIVE_MODEL_VERSION == "yolo26m_clip-vitb32"
+    # Contract pin: model_version must match config AND the expected default
+    # (yolo detector). Bumping the model = a deliberate Event Contract change,
+    # so this literal must be updated in lockstep with Process 2 + replay.
+    assert ev["model_version"] == config.ACTIVE_MODEL_VERSION == "yolo26x_clip-vitb32"
     assert ev["source"] == "cctv"
     assert ev["detect_type"] == "abandoned_object"
     assert ev["object_class"] == "backpack"

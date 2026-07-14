@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# ---- Model weights (auto-downloaded by ultralytics / open_clip; too big for git) ----
+*.pt
+*.onnx
+*.engine
+mobileclip_blt.ts
+
+# ---- EdgeAI generated output (regenerated on every run) ----
+EdgeAI/out/crops/
+EdgeAI/out/persons/
+EdgeAI/out/*.mp4
+EdgeAI/out/*.avi
+EdgeAI/out/diag_*
+EdgeAI/out/contact*
+# note: EdgeAI/out/events.jsonl is kept as a small sample of the Event Contract
+
+# ---- Backend runtime data (sqlite db + user uploads) ----
+backend/data/
+
+# ---- OS / editor junk ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

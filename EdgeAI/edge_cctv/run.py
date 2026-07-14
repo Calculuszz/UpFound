@@ -88,94 +88,113 @@ def run(
     max_seconds: float | None = None,
     heartbeat_every: int = 30,
     preview: bool = False,
+    save_preview: str | None = None,
 ) -> None:
     """Main loop.
 
     Stops when any configured bound is hit; runs forever if all are None.
-      max_iters   — total loop iterations (incl. reconnect/skip) — used by tests
-      max_frames  — processed frames (after sampling) — handy for camera smoke tests
-      max_seconds — wall-clock duration
-      preview     — draw detections + dwell and show a live window (dev/debug)
+      max_iters    — total loop iterations (incl. reconnect/skip) — used by tests
+      max_frames   — processed frames (after sampling) — handy for camera smoke tests
+      max_seconds  — wall-clock duration
+      preview      — draw detections + dwell and show a live window (dev/debug)
+      save_preview — path to write annotated frames to a video file (headless-safe)
     """
     dwell = dwell or DwellTracker()
     sampler = sampler or FrameSampler()
+
+    # Both preview modes need the same annotated frames; person capture drives
+    # the owner links, so treat either as "we want persons this pass".
+    want_preview = preview or bool(save_preview)
 
     window = None
     if preview:
         from .preview import PreviewWindow
         window = PreviewWindow()
 
+    writer = None
+    if save_preview:
+        from .preview import PreviewWriter
+        writer = PreviewWriter(save_preview, fps=getattr(source, "fps", 25.0))
+
     it = 0
     processed = 0
     fired = 0
     start = time.monotonic()
-    while max_iters is None or it < max_iters:
-        it += 1
-        if max_seconds is not None and (time.monotonic() - start) >= max_seconds:
-            break
+    try:
+        while max_iters is None or it < max_iters:
+            it += 1
+            if max_seconds is not None and (time.monotonic() - start) >= max_seconds:
+                break
 
-        frame = source.read_latest()
-        if frame is None:
+            frame = source.read_latest()
+            if frame is None:
+                if isinstance(source, VideoSource):
+                    log.info("video ended")
+                    break
+                # threaded reader has no new frame yet (or reconnecting) — yield
+                # briefly instead of busy-spinning.
+                time.sleep(0.005)
+                continue
+            if sampler.should_skip():
+                continue
+
+            # Timestamp: wall-clock for RTSP, frame_idx/fps for video (reproducible).
             if isinstance(source, VideoSource):
-                log.info("video ended")
-                break
-            # threaded reader has no new frame yet (or reconnecting) — yield
-            # briefly instead of busy-spinning.
-            time.sleep(0.005)
-            continue
-        if sampler.should_skip():
-            continue
-
-        # Timestamp: wall-clock for RTSP, frame_idx/fps for video (reproducible).
-        if isinstance(source, VideoSource):
-            now = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(
-                seconds=source.frame_ts_offset
-            )
-        else:
-            now = datetime.now(timezone.utc)
-
-        # One YOLO pass. When we need persons (capture / preview) we get both
-        # items and persons from the SAME inference instead of running twice.
-        if capture_person or preview:
-            item_dets, persons = tracker.track_items_and_persons(frame)
-        else:
-            item_dets = tracker.track_items(frame)
-            persons = []
-        processed += 1
-
-        if heartbeat_every and processed % heartbeat_every == 0:
-            log.info(
-                "heartbeat: processed=%d items_in_frame=%d tracks=%d fired=%d",
-                processed, len(item_dets), len(dwell.tracks), fired,
-            )
-
-        # One call: id-adoption + stillness + owner tracking + prune.
-        dwell.update_frame(item_dets, persons, now, frame if capture_person else None)
-
-        for det in item_dets:
-            if dwell.should_fire(det.track_id, now):
-                st = dwell.tracks.get(det.track_id)
-                emitter.emit_event(
-                    frame=frame,
-                    bbox_xyxy=det.bbox,
-                    track_id=det.track_id,
-                    cls=dwell.voted_class(det.track_id),  # majority-vote class (#5)
-                    ts=now,
-                    person_frame=st.person_frame if st else None,
+                now = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(
+                    seconds=source.frame_ts_offset
                 )
-                dwell.mark_fired(det.track_id)
-                fired += 1
+            else:
+                now = datetime.now(timezone.utc)
 
-        if window is not None:
-            if not window.draw_and_show(frame, item_dets, dwell, now, persons):
-                log.info("preview quit requested")
+            # One YOLO pass. When we need persons (capture / preview) we get both
+            # items and persons from the SAME inference instead of running twice.
+            if capture_person or want_preview:
+                item_dets, persons = tracker.track_items_and_persons(frame)
+            else:
+                item_dets = tracker.track_items(frame)
+                persons = []
+            processed += 1
+
+            if heartbeat_every and processed % heartbeat_every == 0:
+                log.info(
+                    "heartbeat: processed=%d items_in_frame=%d tracks=%d fired=%d",
+                    processed, len(item_dets), len(dwell.tracks), fired,
+                )
+
+            # One call: id-adoption + stillness + owner tracking + prune.
+            dwell.update_frame(item_dets, persons, now, frame if capture_person else None)
+
+            for det in item_dets:
+                if dwell.should_fire(det.track_id, now):
+                    st = dwell.tracks.get(det.track_id)
+                    emitter.emit_event(
+                        frame=frame,
+                        bbox_xyxy=det.bbox,
+                        track_id=det.track_id,
+                        cls=dwell.voted_class(det.track_id),  # majority-vote class (#5)
+                        ts=now,
+                        person_frame=st.person_frame if st else None,
+                    )
+                    dwell.mark_fired(det.track_id)
+                    fired += 1
+
+            # Headless-safe video output: annotate + write the same frame.
+            if writer is not None:
+                writer.write(frame, item_dets, dwell, now, persons)
+
+            if window is not None:
+                if not window.draw_and_show(frame, item_dets, dwell, now, persons):
+                    log.info("preview quit requested")
+                    break
+
+            if max_frames is not None and processed >= max_frames:
                 break
-
-        if max_frames is not None and processed >= max_frames:
-            break
-
-    if window is not None:
-        window.close()
+    finally:
+        # Release resources even on KeyboardInterrupt so the video is playable.
+        if window is not None:
+            window.close()
+        if writer is not None:
+            writer.close()
 
     log.info(
         "run finished: iters=%d processed=%d fired=%d elapsed=%.1fs",
@@ -208,10 +227,23 @@ def main() -> None:
         "--source", type=str, default=None,
         help="path to a video file (.mp4) to use instead of RTSP (integration test mode)",
     )
+    parser.add_argument(
+        "--save-preview", type=str, default=None, metavar="PATH",
+        help="write annotated frames (boxes + dwell + owner links) to a video "
+             "file instead of a GUI window — headless-safe (e.g. out/preview.mp4)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+    # One clear line up front: which detector/model/contract is active. Makes
+    # accidental detector/model mismatches obvious in the logs.
+    log.info(
+        "detector=%s weights=%s imgsz=%d half=%s model_version=%s classes=%s",
+        config.DETECTOR, config.YOLO_WEIGHTS, config.IMGSZ, config.HALF,
+        config.ACTIVE_MODEL_VERSION, list(config.ITEM_CLASSES.values()),
     )
 
     camera = config.load_camera(use_dev_channel=args.dev)
@@ -235,6 +267,7 @@ def main() -> None:
             max_frames=args.max_frames,
             max_seconds=args.duration,
             preview=args.preview,
+            save_preview=args.save_preview,
         )
     except KeyboardInterrupt:
         log.info("interrupted, shutting down")

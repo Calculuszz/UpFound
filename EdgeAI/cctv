@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+#
+# UpFound Edge AI — ตัวช่วยรันสั้นๆ (wrapper รอบ `python -m edge_cctv.run`)
+#
+#   ./cctv clip [ชื่อคลิป]   ทดสอบด้วยวิดีโอใน vedio_test/ + เซฟ preview + บอกคำสั่ง scp
+#   ./cctv cam               รันกล้องจริง (RTSP) + เซฟ preview
+#   ./cctv events [N]        ดู event ล่าสุด N อัน (default 20)
+#   ./cctv help              วิธีใช้
+#
+# สลับ detector ด้วยตัวแปร DET (default: yolo):
+#   DET=yoloe ./cctv clip    ← open-vocab จับ tablet/ของนอก COCO ได้
+#
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# activate venv (ปิด nounset ชั่วคราว เพราะ activate อ้าง var ที่อาจยังไม่ถูกตั้ง)
+VENV="${UPFOUND_VENV:-$HOME/upfound-env}"
+if [ -f "$VENV/bin/activate" ]; then set +u; source "$VENV/bin/activate"; set -u; fi
+
+DET="${DET:-yolo}"
+export EDGE_DETECTOR="$DET"
+
+# ปลายทาง scp — ปรับได้ด้วย env ถ้า IP/โฟลเดอร์เปลี่ยน:
+#   SCP_HOST=upfound01@172.22.0.100   ./cctv ...
+#   SCP_DEST='C:\Users\User\Desktop\คริป'  ./cctv ...
+SCP_HOST="${SCP_HOST:-upfound01@172.22.0.100}"
+SCP_DEST="${SCP_DEST:-C:\\Users\\User\\Desktop\\คริป}"
+
+print_scp() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  local remote="~/${PWD#$HOME/}/$f"     # เช่น ~/UpFound/EdgeAI/out/preview_yoloe.mp4
+  echo ""
+  echo "📥 ดึงไฟล์กลับมาดูบน PC — copy บรรทัดนี้ไปวางในเทอร์มินัลของ PC (ไม่ใช่บน Spark):"
+  echo ""
+  echo "    scp -r $SCP_HOST:$remote $SCP_DEST"
+  echo ""
+}
+
+usage() {
+  cat <<'USAGE'
+UpFound Edge AI — ตัวช่วยรันสั้นๆ
+
+  ./cctv clip [ชื่อคลิป]   ทดสอบด้วยวิดีโอใน vedio_test/ + เซฟ preview + บอก scp
+  ./cctv cam               รันกล้องจริง (RTSP) + เซฟ preview
+  ./cctv events [N]        ดู event ล่าสุด N อัน (default 20)
+  ./cctv help              หน้านี้
+
+สลับ detector ด้วยตัวแปร DET (default: yolo):
+  DET=yolo   → yolo26x (COCO 80 คลาส)
+  DET=yoloe  → YOLOE open-vocab (จับ tablet/ของนอก COCO ได้)
+
+ตัวอย่าง:
+  ./cctv clip                                    # คลิป default, yolo
+  DET=yoloe ./cctv clip                          # คลิป default, yoloe
+  DET=yoloe ./cctv clip 804956840.350391.mp4     # คลิปนี้, yoloe
+  DET=yoloe ./cctv cam                           # กล้องจริง + yoloe
+  ./cctv events 5                                # ดู 5 event ล่าสุด
+
+preview เซฟแยกตาม detector: out/preview_yolo.mp4 / out/preview_yoloe.mp4
+ปรับจูนเพิ่มด้วย env เดิม เช่น EDGE_IMGSZ, EDGE_YOLOE_PROMPTS, EDGE_DWELL_SECONDS
+flag อื่นๆ ส่งต่อได้เลย เช่น:  ./cctv clip --max-frames 100
+คำสั่งเต็ม:  python -m edge_cctv.run --help
+USAGE
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+  clip)
+    # อาร์กิวเมนต์แรกที่ไม่ใช่ flag = ชื่อคลิป (ที่เหลือส่งต่อให้ run.py)
+    if [ $# -gt 0 ] && [[ "$1" != -* ]]; then src="$1"; shift; else src="804956840.350391.mp4"; fi
+    case "$src" in */*) : ;; *) src="vedio_test/$src" ;; esac   # เติม vedio_test/ ให้ถ้าใส่แค่ชื่อ
+    out="out/preview_${DET}.mp4"
+    echo "▶  clip=$src  detector=$DET  → $out"
+    python -m edge_cctv.run --source "$src" --no-embed --save-preview "$out" "$@"
+    print_scp "$out"
+    ;;
+  cam)
+    out="out/preview_${DET}.mp4"
+    echo "▶  camera (RTSP)  detector=$DET  → $out"
+    python -m edge_cctv.run --save-preview "$out" "$@"
+    print_scp "$out"
+    ;;
+  events)
+    n="${1:-20}"
+    python - "$n" <<'PY'
+import json, sys
+n = int(sys.argv[1]); path = "out/events.jsonl"
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except FileNotFoundError:
+    print(f"ยังไม่มีไฟล์ {path} (ยังไม่มี event ถูกยิง)"); sys.exit(0)
+rows = lines[-n:]
+print(f"{len(rows)} event ล่าสุด (จากทั้งหมด {len(lines)}):\n")
+for l in rows:
+    e = json.loads(l)
+    print(f"  {e['capture_ts'][:19]}  {e['object_class']:10s} "
+          f"track#{e['track_id']:<4} {e['model_version']}  crop={e.get('crop_ref')}")
+PY
+    ;;
+  help|-h|--help) usage ;;
+  *) echo "ไม่รู้จักคำสั่ง: $cmd"; echo; usage; exit 1 ;;
+esac

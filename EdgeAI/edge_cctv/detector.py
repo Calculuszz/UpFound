@@ -228,7 +228,16 @@ class DwellTracker:
 
 
 class YoloTracker:
-    """Thin wrapper over ultralytics YOLO.track with persist + bytetrack."""
+    """Thin wrapper over ultralytics `.track` (persist + bytetrack).
+
+    Supports two detectors, selected by ``config.DETECTOR``:
+      * ``yolo``  — ultralytics YOLO with fixed COCO classes (yolo26x default).
+      * ``yoloe`` — YOLOE open-vocabulary; the class vocabulary is the text
+        prompts in ``config.ITEM_CLASSES.values()`` + ``"person"``. Class ids
+        are the prompt indices, so ``config.PERSON_CLASS_ID`` == len(prompts).
+
+    Both return the same ``Detection`` list, so dwell/emit code is identical.
+    """
 
     def __init__(
         self,
@@ -236,53 +245,76 @@ class YoloTracker:
         item_classes: dict[int, str] | None = None,
         tracker_cfg: str = config.TRACKER_CFG,
     ) -> None:
-        from ultralytics import YOLO  # lazy import (heavy)
+        import torch  # lazy import (heavy)
 
-        self.model = YOLO(weights)
         self.item_classes = item_classes or config.ITEM_CLASSES
         self.tracker_cfg = tracker_cfg
-        # Ask YOLO for anything at/above the lowest threshold we might keep, then
-        # apply the exact per-class thresholds in Python (YOLO's conf is global).
+        self.is_yoloe = config.DETECTOR == "yoloe"
+
+        if self.is_yoloe:
+            from ultralytics import YOLOE
+
+            self.model = YOLOE(weights)
+            # Vocabulary = item prompts (in id order) + person appended last, so
+            # the person index matches config.PERSON_CLASS_ID.
+            prompts = list(self.item_classes.values()) + ["person"]
+            self.model.set_classes(prompts, self.model.get_text_pe(prompts))
+            log.info("YOLOE open-vocab prompts: %s", prompts)
+        else:
+            from ultralytics import YOLO
+
+            self.model = YOLO(weights)
+
+        # FP16 only makes sense on GPU; on CPU it would silently slow things down.
+        # ultralytics >= 8.4 takes quantize=16 (FP16) / None (FP32) instead of half=.
+        use_fp16 = config.HALF and torch.cuda.is_available()
+        self.quantize = 16 if use_fp16 else None
+        if config.HALF and not use_fp16:
+            log.info("EDGE_HALF requested but CUDA unavailable — using FP32")
+        # Ask the model for anything at/above the lowest threshold we might keep,
+        # then apply the exact per-class thresholds in Python (conf is global).
         self._conf_floor = min(
             [config.CONF_MIN, config.PERSON_CONF, *config.CONF_BY_CLASS.values()]
         )
 
-    def track_items(self, frame) -> list[Detection]:
-        """Return filtered item-class detections with stable track ids."""
-        results = self.model.track(
-            frame,
+    def _track(self, frame, classes):
+        """Run one `.track` pass. YOLOE's vocabulary is fixed by set_classes(),
+        so it ignores the `classes=` filter — pass it only for plain YOLO."""
+        kw = dict(
             persist=True,
-            classes=list(self.item_classes.keys()),
             conf=self._conf_floor,
             imgsz=config.IMGSZ,
+            quantize=self.quantize,
             tracker=self.tracker_cfg,
             verbose=False,
         )
+        if not self.is_yoloe:
+            kw["classes"] = classes
+        return self.model.track(frame, **kw)
+
+    def track_items(self, frame) -> list[Detection]:
+        """Return filtered item-class detections with stable track ids."""
+        results = self._track(frame, classes=list(self.item_classes.keys()))
         raw = self._parse(results)
         if raw:
             log.debug("track_items raw: %d dets %s", len(raw),
                       [(d.cls, d.conf, d.bbox) for d in raw[:5]])
-        filtered = [d for d in raw if item_passes_filters(d)]
+        # For YOLOE the person class is in the vocab too — keep item classes only.
+        filtered = [
+            d for d in raw if d.cls in self.item_classes and item_passes_filters(d)
+        ]
         if raw and not filtered:
             log.debug("all %d dets filtered out", len(raw))
         return filtered
 
     def track_items_and_persons(self, frame) -> tuple[list[Detection], list[Detection]]:
-        """Single YOLO pass covering items + persons, split into two lists.
+        """Single pass covering items + persons, split into two lists.
 
         Avoids running inference twice per frame when person capture / preview
-        is on — a major throughput win on CPU.
+        is on — a major throughput win.
         """
         classes = list(self.item_classes.keys()) + [config.PERSON_CLASS_ID]
-        results = self.model.track(
-            frame,
-            persist=True,
-            classes=classes,
-            conf=self._conf_floor,
-            imgsz=config.IMGSZ,
-            tracker=self.tracker_cfg,
-            verbose=False,
-        )
+        results = self._track(frame, classes=classes)
         dets = self._parse(results)
         if dets:
             log.debug("track_items_and_persons raw: %d dets", len(dets))
