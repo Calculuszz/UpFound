@@ -37,23 +37,36 @@ def make_token(user_id: int, email: str) -> str:
     return jwt.encode(payload, config.JWT_SECRET, algorithm=config.JWT_ALG)
 
 
-def current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> dict:
-    """FastAPI dependency → the authenticated user row (401 if missing/invalid)."""
+def _user_from_creds(creds: HTTPAuthorizationCredentials | None) -> dict | None:
     if creds is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing bearer token")
+        return None
     try:
         payload = jwt.decode(
             creds.credentials, config.JWT_SECRET, algorithms=[config.JWT_ALG]
         )
     except jwt.PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired token")
+        return None
     with db() as conn:
         row = conn.execute(
             "SELECT id, email, name, created_at FROM users WHERE id = ?",
             (int(payload["sub"]),),
         ).fetchone()
-    if row is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user no longer exists")
     return row_to_dict(row)
+
+
+def current_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict:
+    """FastAPI dependency → the authenticated user row (401 if missing/invalid)."""
+    user = _user_from_creds(creds)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "login required")
+    return user
+
+
+def optional_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict | None:
+    """Like current_user but never 401s — returns None for anonymous callers.
+    Used by public endpoints (e.g. reporting a lost person needs no account)."""
+    return _user_from_creds(creds)

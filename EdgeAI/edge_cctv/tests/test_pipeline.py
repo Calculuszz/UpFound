@@ -8,15 +8,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from UpFound.EdgeAI.edge_cctv import config
-from UpFound.EdgeAI.edge_cctv.detector import (
+from edge_cctv import config
+from edge_cctv.detector import (
     Detection,
     DwellTracker,
     FrameSampler,
     item_passes_filters,
 )
-from UpFound.EdgeAI.edge_cctv.emitter import Emitter, build_event, make_event_id
-from UpFound.EdgeAI.edge_cctv.person_capture import find_person_detections
+from edge_cctv.emitter import Emitter, build_event, make_event_id
+from edge_cctv.person_capture import find_person_detections
 
 
 UTC = timezone.utc
@@ -114,25 +114,96 @@ def test_majority_vote_class():
 
 # --- accuracy filters: per-class confidence + min bbox size ------------------
 def test_item_passes_filters_confidence_and_size():
+    # Config-driven so the test tracks the live thresholds instead of going stale
+    # when they are re-tuned.
+    suit_floor = config.conf_threshold_for(28)   # suitcase
     # a comfortably large, high-conf suitcase passes
-    ok = Detection((100, 100, 300, 260), 1, 28, conf=0.9)
-    assert item_passes_filters(ok)
+    assert item_passes_filters(Detection((100, 100, 300, 260), 1, 28, conf=0.9))
+    # just below its class floor → rejected
+    assert not item_passes_filters(
+        Detection((100, 100, 300, 260), 1, 28, conf=max(0.0, suit_floor - 0.02))
+    )
 
-    # low confidence for its class → rejected (suitcase floor = CONF_MIN 0.40)
-    low_conf = Detection((100, 100, 300, 260), 1, 28, conf=0.30)
-    assert not item_passes_filters(low_conf)
-
-    # tiny box (< MIN_BBOX_SIDE) → rejected even at high conf.
-    # This is exactly the 39x50 "cell phone" false positive from real data.
-    tiny = Detection((341, 53, 380, 103), 2, 67, conf=0.99)  # 39x50 px
-    assert min(380 - 341, 103 - 53) < config.MIN_BBOX_SIDE
+    # a box whose short side is below MIN_BBOX_SIDE → rejected even at high conf
+    # (the class of spurious sliver detections on background texture).
+    short = max(1, config.MIN_BBOX_SIDE - 2)
+    tiny = Detection((341, 53, 341 + short, 153), 2, 67, conf=0.99)
+    assert min(short, 100) < config.MIN_BBOX_SIDE
     assert not item_passes_filters(tiny)
 
-    # cell phone needs the higher per-class floor (0.55): 0.45 fails though big
-    weak_phone = Detection((100, 100, 200, 260), 3, 67, conf=0.45)
-    assert not item_passes_filters(weak_phone)
-    strong_phone = Detection((100, 100, 200, 260), 3, 67, conf=0.60)
-    assert item_passes_filters(strong_phone)
+    # a class with a stricter-than-default floor (book) rejects a mid-conf box
+    book_floor = config.conf_threshold_for(73)
+    assert book_floor > config.CONF_MIN
+    assert not item_passes_filters(Detection((100, 100, 200, 260), 3, 73, conf=book_floor - 0.05))
+    assert item_passes_filters(Detection((100, 100, 200, 260), 3, 73, conf=book_floor + 0.05))
+
+
+# --- #3 double-fire: a fired track must not re-fire after jitter/occlusion ----
+def test_no_refire_after_jitter():
+    dwell = DwellTracker(dwell_seconds=8.0, move_tol=25, require_movement=False)
+    t0 = datetime(2026, 7, 4, 12, 0, 0, tzinfo=UTC)
+    box = (100, 100, 200, 260)
+    dwell.update(Detection(box, 7, 24), t0)
+    t_fire = t0 + timedelta(seconds=8.1)
+    dwell.update(Detection(box, 7, 24), t_fire)
+    assert dwell.should_fire(7, t_fire)
+    dwell.mark_fired(7)
+
+    # object jitters far (resets the dwell clock, sets has_moved) then re-settles
+    dwell.update(Detection((400, 400, 500, 560), 7, 24), t_fire + timedelta(seconds=1))
+    dwell.update(Detection((400, 400, 500, 560), 7, 24), t_fire + timedelta(seconds=9.3))
+    # ...but it stays fired → no duplicate event for the same track
+    assert dwell.tracks[7].fired is True
+    assert not dwell.should_fire(7, t_fire + timedelta(seconds=9.3))
+
+
+# --- #1 placement window: a person passing an OLD fixture must not arm it -----
+def test_passerby_on_old_fixture_does_not_fire():
+    dwell = DwellTracker(
+        dwell_seconds=8.0, require_movement=True,
+        require_owner_left=True, owner_left_seconds=3.0, owner_radius=150,
+    )
+    t0 = datetime(2026, 7, 4, 12, 0, 0, tzinfo=UTC)
+    fixture = Detection((100, 100, 200, 260), 9, 24)  # static shelf bag
+    # present and still for far longer than the placement window
+    for s in range(0, 20, 2):
+        dwell.update_frame([fixture], [], t0 + timedelta(seconds=s))
+    # NOW someone walks past it (near, but the item is old → mere passer-by)
+    person = Detection((150, 150, 240, 320), -1, config.PERSON_CLASS_ID)
+    dwell.update_frame([fixture], [person], t0 + timedelta(seconds=20), FakeFrame())
+    assert dwell.tracks[9].person_seen is False        # NOT armed as a placement
+    dwell.update_frame([fixture], [], t0 + timedelta(seconds=30))
+    assert not dwell.should_fire(9, t0 + timedelta(seconds=40))
+
+
+# --- #1/#2 a fresh item with a person right there IS a placement -------------
+def test_fresh_item_with_person_is_placement():
+    dwell = DwellTracker(
+        dwell_seconds=8.0, require_movement=True,
+        require_owner_left=True, owner_left_seconds=3.0,
+    )
+    t0 = datetime(2026, 7, 4, 12, 0, 0, tzinfo=UTC)
+    item = Detection((100, 100, 200, 260), 9, 24)
+    person = Detection((150, 150, 240, 320), -1, config.PERSON_CLASS_ID)
+    dwell.update_frame([item], [person], t0, FakeFrame())        # appears w/ placer
+    assert dwell.tracks[9].person_seen is True
+    assert dwell.tracks[9].placer_id == -1                       # placer recorded
+    dwell.update_frame([item], [], t0 + timedelta(seconds=8.2))  # placer leaves
+    assert dwell.should_fire(9, t0 + timedelta(seconds=12.0))    # fires after owner-left
+
+
+# --- #2 scale-aware proximity: a big/near person beside a far-centroid item ---
+def test_scale_aware_proximity_large_person():
+    dwell = DwellTracker(owner_radius=50)  # deliberately tiny radius
+    t0 = datetime(2026, 7, 4, 12, 0, 0, tzinfo=UTC)
+    item = Detection((900, 980, 1120, 1140), 9, 24)
+    person = Detection((1100, 450, 1550, 1340), -1, config.PERSON_CLASS_ID)
+    import math
+    ic = ((900 + 1120) / 2, (980 + 1140) / 2)
+    pc = ((1100 + 1550) / 2, (450 + 1340) / 2)
+    assert math.hypot(ic[0] - pc[0], ic[1] - pc[1]) > 50  # centroid distance FAILS
+    dwell.update_frame([item], [person], t0, FakeFrame())
+    assert dwell.tracks[9].person_seen is True            # but bbox-proximity catches it
 
 
 # --- abandonment gate: object must have moved before it can fire -------------

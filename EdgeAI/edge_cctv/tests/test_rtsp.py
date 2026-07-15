@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from UpFound.EdgeAI.edge_cctv import rtsp_source
+from edge_cctv import rtsp_source
 
 
 class FakeCap:

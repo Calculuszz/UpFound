@@ -19,7 +19,9 @@ EdgeAI/out/*.mp4
 EdgeAI/out/*.avi
 EdgeAI/out/diag_*
 EdgeAI/out/contact*
-# note: EdgeAI/out/events.jsonl is kept as a small sample of the Event Contract
+EdgeAI/out/_*
+# runtime event stream (regenerated; grows large with embeddings)
+EdgeAI/out/events.jsonl
 
 # ---- Backend runtime data (sqlite db + user uploads) ----
 backend/data/

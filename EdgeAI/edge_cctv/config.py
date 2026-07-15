@@ -178,6 +178,22 @@ OWNER_LEFT_SECONDS = float(os.getenv("EDGE_OWNER_LEFT_SECONDS", "3.0"))
 # Master switch for the owner-left requirement (needs person capture enabled).
 REQUIRE_OWNER_LEFT = os.getenv("EDGE_REQUIRE_OWNER_LEFT", "1") not in ("0", "false", "False")
 
+# ---------------------------------------------------------------------------
+# Placement detection — tell a genuinely placed item apart from a fixture that
+# a person merely walked past (fixes the "shelf-bag" false positive: a static
+# background object fired just because someone passed within radius of it).
+# ---------------------------------------------------------------------------
+# A person counts as an item's PLACER only if they are near it within this many
+# seconds of the item first being seen — i.e. the item appeared while they were
+# there (they brought/set it down). A person near a long-standing item is just
+# passing by, not a placer, so that item never gets person_seen and never fires.
+PLACEMENT_WINDOW_SECONDS = float(os.getenv("EDGE_PLACEMENT_WINDOW_SECONDS", "5.0"))
+# Proximity is scale-aware: an item is "near" a person if its centroid falls
+# inside the person's bbox expanded by this fraction of the person's size. A
+# fixed pixel radius is too strict when a large/near person stands beside an
+# item — their centroid can be far while they are right next to it.
+OWNER_BOX_MARGIN = float(os.getenv("EDGE_OWNER_BOX_MARGIN", "0.4"))
+
 
 # ---------------------------------------------------------------------------
 # RTSP / reconnect
@@ -209,11 +225,15 @@ class CameraConfig:
     camera_id: str = "cam-01"
     zone: str = "fl2-zoneA"
     ip: str = "192.168.1.64"
+    # RTSP port — override (EDGE_RTSP_PORT) when reaching the camera through a
+    # tunnel/relay, e.g. an SSH reverse tunnel to 127.0.0.1:<port> when the box
+    # running EdgeAI can't route to the camera's LAN directly.
+    port: int = 554
     username: str = "admin"
     # NEVER hardcode — pulled from env/secret manager.
     password: str = field(default_factory=lambda: os.getenv("EDGE_RTSP_PASSWORD", ""))
     channel: str = CHANNEL_PROD
-    rtsp_tmpl: str = "rtsp://{u}:{p}@{ip}:554/Streaming/Channels/{ch}"
+    rtsp_tmpl: str = "rtsp://{u}:{p}@{ip}:{port}/Streaming/Channels/{ch}"
 
     def rtsp_url(self) -> str:
         if not self.password:
@@ -221,13 +241,13 @@ class CameraConfig:
                 "RTSP password not set. Export EDGE_RTSP_PASSWORD (never hardcode)."
             )
         return self.rtsp_tmpl.format(
-            u=self.username, p=self.password, ip=self.ip, ch=self.channel
+            u=self.username, p=self.password, ip=self.ip, port=self.port, ch=self.channel
         )
 
     def rtsp_url_redacted(self) -> str:
         """URL safe for logging — password masked."""
         return self.rtsp_tmpl.format(
-            u=self.username, p="****", ip=self.ip, ch=self.channel
+            u=self.username, p="****", ip=self.ip, port=self.port, ch=self.channel
         )
 
 
@@ -236,6 +256,7 @@ def load_camera(use_dev_channel: bool = False) -> CameraConfig:
         camera_id=os.getenv("EDGE_CAMERA_ID", "cam-01"),
         zone=os.getenv("EDGE_ZONE", "fl2-zoneA"),
         ip=os.getenv("EDGE_CAMERA_IP", "192.168.1.64"),
+        port=int(os.getenv("EDGE_RTSP_PORT", "554")),
         username=os.getenv("EDGE_CAMERA_USER", "admin"),
     )
     cam.channel = CHANNEL_DEV if use_dev_channel else CHANNEL_PROD

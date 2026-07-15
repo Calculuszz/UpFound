@@ -53,6 +53,14 @@ def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
+def _point_in_bbox(bbox: tuple[int, int, int, int], pt: tuple[float, float],
+                   margin_frac: float) -> bool:
+    """True if `pt` falls inside `bbox` expanded by margin_frac of its size."""
+    x1, y1, x2, y2 = bbox
+    mx, my = (x2 - x1) * margin_frac, (y2 - y1) * margin_frac
+    return (x1 - mx) <= pt[0] <= (x2 + mx) and (y1 - my) <= pt[1] <= (y2 + my)
+
+
 def item_passes_filters(det: Detection) -> bool:
     """Accuracy gate for item detections: per-class confidence + min box size.
 
@@ -72,12 +80,14 @@ class TrackState:
     still_since: datetime | None = None
     anchor: tuple[float, float] | None = None  # settled centroid; stillness reference
     fired: bool = False
+    first_seen: datetime | None = None  # when this track first appeared (placement age)
     last_bbox: tuple[int, int, int, int] | None = None
     last_seen: datetime | None = None
     cls: int | None = None
     class_votes: Counter = field(default_factory=Counter)  # majority-vote class (#5)
     has_moved: bool = False  # seen moving at least once (placement signal)
-    person_seen: bool = False  # a person was near it at some point (placer signal)
+    person_seen: bool = False  # a *placer* was near it (not a mere passer-by)
+    placer_id: int | None = None  # track_id of the person who placed it
     last_person_near_ts: datetime | None = None  # last time a person was near (owner)
     person_frame: object | None = None  # snapshot of the placer (nullable)
 
@@ -120,13 +130,16 @@ class DwellTracker:
         st = self.tracks.get(det.track_id)
         c = centroid(det.bbox)
         if st is None:
-            st = TrackState(still_since=now, anchor=c)
+            st = TrackState(still_since=now, anchor=c, first_seen=now)
             self.tracks[det.track_id] = st
         elif _dist(c, st.anchor) > self._tol_for(det.bbox):
             # drifted beyond tolerance from the settled position → real move.
+            # Reset the dwell clock, but do NOT clear `fired`: once an event has
+            # been emitted for this track, later jitter/occlusion must not let it
+            # re-fire (#3 double-fire). A genuinely re-placed object breaks the
+            # track and comes back with a new id, which fires fresh.
             st.anchor = c
             st.still_since = now
-            st.fired = False
             st.has_moved = True
         st.last_bbox = det.bbox
         st.last_seen = now
@@ -164,20 +177,47 @@ class DwellTracker:
                 self.tracks[det.track_id] = self.tracks.pop(best_id)
                 lost.remove(best_id)
 
+    def _is_near(self, item_bbox, person_bbox) -> bool:
+        """Scale-aware proximity: item centroid inside the person's bbox expanded
+        by OWNER_BOX_MARGIN, or within owner_radius px (floor for small people)."""
+        ic = centroid(item_bbox)
+        if _point_in_bbox(person_bbox, ic, config.OWNER_BOX_MARGIN):
+            return True
+        return _dist(ic, centroid(person_bbox)) <= self.owner_radius
+
     def _note_persons(self, items, persons, now: datetime, frame) -> None:
-        """Record owner proximity + capture the placer frame (face compare)."""
+        """Record the *placer* + capture their frame (face compare).
+
+        A person only counts as a placer if they are near the item while it is
+        young (appeared within PLACEMENT_WINDOW_SECONDS) or was seen moving into
+        place. A person near a long-standing item is merely passing by — that
+        item never becomes a fire candidate (kills the background/fixture FP).
+        Once a placer is known, any nearby person keeps the owner-left timer
+        alive so the item won't fire while someone lingers.
+        """
         if not persons:
             return
         for det in items:
             st = self.tracks.get(det.track_id)
             if st is None or st.fired:
                 continue
-            ic = centroid(det.bbox)
-            if any(_dist(ic, centroid(p.bbox)) <= self.owner_radius for p in persons):
+            near = [p for p in persons if self._is_near(det.bbox, p.bbox)]
+            if not near:
+                continue
+            age = (now - st.first_seen).total_seconds() if st.first_seen else 0.0
+            is_placement = st.has_moved or age <= config.PLACEMENT_WINDOW_SECONDS
+            if is_placement:
+                nearest = min(near, key=lambda p: _dist(centroid(det.bbox),
+                                                        centroid(p.bbox)))
+                if not st.person_seen:
+                    st.placer_id = nearest.track_id
                 st.person_seen = True
                 st.last_person_near_ts = now
                 if frame is not None:
                     st.person_frame = frame.copy() if hasattr(frame, "copy") else frame
+            elif st.person_seen:
+                # known placement; keep owner-left alive while anyone lingers
+                st.last_person_near_ts = now
 
     def _prune(self, now: datetime) -> None:
         stale = [
@@ -285,6 +325,10 @@ class YoloTracker:
             conf=self._conf_floor,
             imgsz=config.IMGSZ,
             quantize=self.quantize,
+            # Class-agnostic NMS: suppress an overlapping backpack+handbag pair on
+            # the SAME object (open-vocab flicker) so one physical bag doesn't spawn
+            # two competing tracks (#4). Keeps the higher-confidence box.
+            agnostic_nms=True,
             tracker=self.tracker_cfg,
             verbose=False,
         )

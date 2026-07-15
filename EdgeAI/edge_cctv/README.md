@@ -179,13 +179,13 @@ python -c "import psutil; print(psutil.virtual_memory())"
 
 ## Detection logic overview
 
-1. YOLO26 detect + ByteTrack track → ได้ bbox + track_id ต่อเฟรม
+1. YOLO26 detect + ByteTrack track (+ class-agnostic NMS กัน track ซ้อนจาก class flicker) → bbox + track_id ต่อเฟรม
 2. กรอง: per-class confidence + min bbox size (กัน false positive)
 3. DwellTracker: วัดความนิ่งแบบ anchor + scale-aware tolerance
 4. Track adoption: สืบทอดสถานะเมื่อ track_id เปลี่ยน (IoU)
-5. Owner-left gating: ยิงเฉพาะเมื่อคนวาง → เดินจากไป > 3 วิ
-6. Majority-vote class: คลาสสุดท้ายใน event = โหวตตลอดอายุ track
-7. Fire once → emit Event Contract + crop + person frame
+5. **Placement detection:** คนจะนับเป็น "ผู้วาง" เฉพาะเมื่ออยู่ใกล้ตอนของ**เพิ่งโผล่** (ภายใน `PLACEMENT_WINDOW`) — คนเดินผ่านของที่อยู่มานาน = ไม่นับ (กัน false positive ของประจำที่/เฟอร์นิเจอร์). proximity เป็นแบบ scale-aware (เทียบกับกล่องคน ไม่ใช่รัศมี px ตายตัว)
+6. Owner-left gating: ยิงเฉพาะเมื่อผู้วาง → เดินจากไป > 3 วิ
+7. Majority-vote class + **fire ครั้งเดียวถาวร** (ยิงแล้วไม่ยิงซ้ำแม้ bbox กระตุก) → emit Event Contract + crop + person frame
 
 ## Env vars (ปรับ tuning)
 
@@ -203,7 +203,9 @@ python -c "import psutil; print(psutil.virtual_memory())"
 | `EDGE_HALF` | 1 | FP16 inference บน GPU (0=FP32; ไม่มี CUDA จะ FP32 อัตโนมัติ) |
 | `EDGE_CONF_MIN` | 0.40 | confidence ขั้นต่ำ (default) |
 | `EDGE_MIN_BBOX_SIDE` | 40 | กรอง bbox ด้านสั้น < X px |
-| `EDGE_OWNER_RADIUS` | 150 | รัศมี px ที่นับว่า "คนอยู่ใกล้ของ" |
+| `EDGE_OWNER_RADIUS` | 150 | รัศมี px floor ที่นับว่า "คนอยู่ใกล้ของ" (เสริม scale-aware) |
+| `EDGE_OWNER_BOX_MARGIN` | 0.4 | ขยายกล่องคนกี่เท่าเพื่อวัด proximity (scale-aware) |
+| `EDGE_PLACEMENT_WINDOW_SECONDS` | 5.0 | คนต้องอยู่ใกล้ภายในกี่วิหลังของโผล่ ถึงนับเป็น "ผู้วาง" (กัน FP ของประจำที่) |
 | `EDGE_OWNER_LEFT_SECONDS` | 3.0 | คนต้องห่างกี่วินาทีถึงนับว่า "ทิ้ง" |
 | `EDGE_ADOPT_IOU` | 0.3 | IoU ขั้นต่ำสำหรับ track adoption |
 | `EDGE_SAMPLE_EVERY` | 3 | ประมวลทุกกี่เฟรม |

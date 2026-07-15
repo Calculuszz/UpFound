@@ -114,7 +114,12 @@ def run(
     writer = None
     if save_preview:
         from .preview import PreviewWriter
-        writer = PreviewWriter(save_preview, fps=getattr(source, "fps", 25.0))
+        # We write one frame per *processed* frame, i.e. one of every
+        # sampler.sample_every source frames — so the playback fps must be the
+        # source fps divided by the sample rate, else the video plays sped up.
+        src_fps = getattr(source, "fps", 25.0) or 25.0
+        out_fps = max(1.0, src_fps / max(1, sampler.sample_every))
+        writer = PreviewWriter(save_preview, fps=out_fps)
 
     it = 0
     processed = 0

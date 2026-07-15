@@ -21,16 +21,36 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS lost_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL REFERENCES users(id),
+    user_id     INTEGER REFERENCES users(id),    -- nullable: found reports are public
+    kind        TEXT NOT NULL DEFAULT 'lost',     -- 'lost' (owner) | 'found' (finder)
     item_name   TEXT NOT NULL,
     color       TEXT,
     qty         INTEGER DEFAULT 1,
     item_type   TEXT,
+    contact     TEXT,                             -- finder's contact (found reports)
     location    TEXT,
     lost_date   TEXT,
     detail      TEXT,
     image_paths TEXT,          -- json array of stored upload paths
     embedding   TEXT,          -- json array (query vector for matching)
+    status      TEXT DEFAULT 'open',
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS person_reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id),   -- nullable: person reports are public
+    kind        TEXT NOT NULL DEFAULT 'lost',    -- 'lost' (missing) | 'found' (spotted)
+    full_name   TEXT,                            -- lost side (finder may not know it)
+    gender      TEXT,
+    age         INTEGER,
+    height_cm   INTEGER,
+    contact     TEXT,                            -- found side (how to reach the finder)
+    location    TEXT,
+    report_date TEXT,
+    detail      TEXT,
+    image_paths TEXT,          -- json array of stored upload paths
+    embedding   TEXT,          -- json CLIP image vector (mean of photos) for matching
     status      TEXT DEFAULT 'open',
     created_at  TEXT NOT NULL
 );

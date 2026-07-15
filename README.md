@@ -57,38 +57,106 @@ DET=yoloe ./cctv clip        # สลับเป็น YOLOE (จับ tablet 
 ```
 
 ### 2) backend — Process 2 (API + matching)
-FastAPI เสิร์ฟทั้ง frontend (same-origin) และ API — auth (JWT), เก็บฟอร์มของหาย,
-ingest event จาก EdgeAI, และ matching ด้วย CLIP (reuse โมเดลตัวเดียวกับ EdgeAI)
+FastAPI เสิร์ฟทั้ง frontend (same-origin) และ API — auth (JWT + บัญชี demo),
+**auto-ingest** event จาก EdgeAI (ทุก 30 วิ), และ matching ด้วย CLIP (reuse โมเดล
+เดียวกับ EdgeAI) ทั้ง 4 มุม: ของหาย×คนหาย × ตามหา×แจ้งพบ
 
 ```bash
 cd backend
 ./run.sh                     # เปิดที่ http://0.0.0.0:8000
 ```
 
-หลัก API: `POST /api/register`·`/api/login` · `POST /api/reports` (แจ้งของหาย + คืน
-รายการที่ตรงกัน) · `POST /api/ingest` (ดึง event จาก EdgeAI) · `GET /api/events`
+API หลัก:
+- `POST /api/register` · `/api/login` · `GET /api/demo-account` (บัญชีทดลอง)
+- `POST /api/reports` (แจ้งของหาย → match กับกล้อง) · `POST /api/found-items` (แจ้งพบของ → match เจ้าของ)
+- `POST /api/person-reports` (คนหาย) · `POST /api/found-persons` (พบคน) — จับคู่รูปด้วย CLIP
+- `GET /api/feed` (คลังข้อมูลสาธารณะ) · `POST /api/ingest` (ดึง event manual; ปกติ auto)
 
 ### 3) Web_dev — Frontend
-Static HTML + Bootstrap 5 ต่อกับ backend ผ่าน `upfound.js` (login, register, แจ้งของหาย
-พร้อมแสดงรูปที่ match). เสิร์ฟโดย backend เอง
+Static HTML + Bootstrap 5 ต่อ backend ผ่าน `upfound.js`. 4 ฟอร์มแยกชัดเจน
+(formitem/formperson = ตามหา, founditem/foundperson = แจ้งพบ) + navbar โชว์สถานะ login +
+gallery คลังข้อมูล. เสิร์ฟโดย backend เอง
 
 ---
 
-## เริ่มใช้งาน (บน DGX Spark) คลังไม่ต้องสนใจอันนี้
+## 🚀 เริ่มใช้งานจริง (workflow ออกบูธ)
 
+รันบน DGX Spark ทั้งหมด · เข้าเว็บจาก PC/มือถือผ่าน ZeroTier
+
+### ① เปิดระบบ — ใช้ 2 เทอร์มินัล
+
+**Terminal 1 — Backend + เว็บ** (เปิดค้างไว้)
 ```bash
-# 1. รัน EdgeAI สร้าง event จากคลิป (เปิด CLIP embedding ด้วย = ไม่ใส่ --no-embed)
-cd ~/UpFound/EdgeAI && DET=yoloe ./cctv clip
-
-# 2. เปิด backend
 cd ~/UpFound/backend && ./run.sh
-
-# 3. ดึง event เข้า DB (ครั้งเดียว / เมื่อมี event ใหม่)
-curl -X POST http://localhost:8000/api/ingest
-
-# 4. เปิดเว็บจาก browser บน PC
-#    http://<spark-ip>:8000/login.html
+# → http://0.0.0.0:8000  (auto-ingest event จากกล้องทุก 30 วิ อัตโนมัติ)
 ```
+
+**Terminal 2 — กล้อง detect** (เปิดค้างไว้)
+```bash
+cd ~/UpFound/EdgeAI
+export EDGE_RTSP_PASSWORD='รหัสกล้อง'
+export EDGE_CAMERA_IP=127.0.0.1 EDGE_RTSP_PORT=8554   # ถ้าใช้ SSH tunnel (ดูล่าง)
+DET=yoloe ./cctv cam
+```
+> กล้องอยู่คนละวงกับ Spark → เปิด tunnel จาก **PC**: `ssh -R 8554:192.168.1.64:554 upfound01@172.22.0.100`
+> ถ้าไม่มีกล้อง สาธิตด้วยคลิปแทนได้: `DET=yoloe ./cctv clip`
+
+### ② เข้าเว็บ (จาก PC/มือถือ)
+```
+http://172.22.0.100:8000/index.html
+```
+
+### ③ Flow สาธิต
+1. **Login** → กดปุ่ม *"เข้าสู่ระบบด้วยบัญชีทดลอง"* (demo: `demo@upfound.co` / `demo1234`)
+2. **ตามหาของหาย** → กรอกฟอร์ม/แนบรูป → ระบบโชว์ของที่กล้องเจอที่ตรงกัน (CLIP match)
+3. **แจ้งพบ** (ของ/คน) → จับคู่กับรายงานที่ตามหา
+4. **คลังข้อมูล** → ดู gallery รายงานทั้งหมด + ค้นหา
+
+---
+
+## 📋 คำสั่งที่ใช้บ่อย (cheat sheet)
+
+**EdgeAI — ตัวช่วย `./cctv`** (ใน `~/UpFound/EdgeAI`, activate venv ให้เอง)
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `DET=yoloe ./cctv cam` | รันกล้องจริง (YOLOE จับ tablet ได้) |
+| `DET=yoloe ./cctv clip` | ทดสอบด้วยคลิป |
+| `./cctv events 10` | ดู event ล่าสุด 10 อัน |
+| `./cctv help` | วิธีใช้ทั้งหมด |
+
+**Backend** (ใน `~/UpFound/backend`)
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `./run.sh` | เปิดเว็บ+API ที่ `:8000` (auto-ingest ในตัว) |
+| `PORT=9000 ./run.sh` | เปลี่ยนพอร์ต |
+| `rm data/upfound.db` | ล้างข้อมูลเดโม เริ่มสด (bot จะ seed บัญชี demo ใหม่ให้) |
+
+**ทดสอบ / ตรวจสอบ**
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `cd ~/UpFound/EdgeAI && python -m pytest edge_cctv/tests -q` | รัน unit test |
+| `grep MemAvailable /proc/meminfo` | ดู memory (Spark unified) |
+| `curl -s localhost:8000/api/feed \| python -m json.tool` | ดูข้อมูลใน DB |
+
+**ปรับแต่งผ่าน env** (แนบหน้าคำสั่ง เช่น `EDGE_IMGSZ=1280 DET=yoloe ./cctv cam`)
+| env | default | ผล |
+|---|---|---|
+| `DET` | yolo | `yoloe` = จับของนอก COCO ได้ |
+| `EDGE_IMGSZ` | 1920 | ความละเอียด (สูง=แม่นแต่ช้า) |
+| `UPFOUND_INGEST_INTERVAL` | 30 | backend ดึง event ทุกกี่วิ |
+| `UPFOUND_DEMO_ENABLED` | 1 | `0` = ปิดบัญชีทดลอง |
+
+---
+
+## 🔧 Troubleshooting
+
+| อาการ | แก้ |
+|---|---|
+| กล้องต่อไม่ติด (timeout) | กล้องคนละวงกับ Spark → เปิด SSH tunnel จาก PC (ดูข้างบน) |
+| เว็บเปิดไม่ขึ้น | backend รันอยู่ไหม? เข้าจาก IP ZeroTier `172.22.0.100:8000` |
+| เว็บพฤติกรรมเก่า | **hard refresh** `Ctrl+Shift+R` (กัน cache `upfound.js`) |
+| video preview เร็ว/ช้าผิด | fps output = source fps ÷ `EDGE_SAMPLE_EVERY` (แก้แล้ว) |
+| เครื่องค้าง/SSH หลุด | unified memory OOM → ลด `EDGE_IMGSZ` |
 
 ---
 
@@ -118,5 +186,8 @@ curl -X POST http://localhost:8000/api/ingest
 
 ---
 
-*ยังไม่เสร็จ (roadmap):* หน้า Search แสดงผล + ยืนยัน match · ระบบคนหาย (Process 3, face) ·
-pre-filter ด้วย class/zone/เวลา ให้ matching แม่นขึ้น · deploy ขึ้น AWS
+*เสร็จแล้ว:* ครบ loop end-to-end — auth + บัญชี demo, แจ้งของหาย/คนหาย/แจ้งพบ (4 ฟอร์ม),
+CLIP matching ทั้งของ (กับกล้อง) และคน (รูป↔รูป), auto-ingest, คลังข้อมูล, upload validation
+
+*ยังไม่เสร็จ (roadmap):* ปุ่มยืนยัน/ปฏิเสธ match · face recognition จริง (Process 3) ·
+zone-based detection (scope พื้นที่) · pre-filter class/เวลา ให้ matching แม่นขึ้น · deploy ขึ้น AWS
