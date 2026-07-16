@@ -234,7 +234,7 @@ async def create_report(
         )
         rid = cur.lastrowid
 
-    results = matching.cosine_matches(qvec)
+    results = matching.cosine_matches(qvec, matching.IMAGE if saved else matching.TEXT)
     with db() as conn:
         for r in results:
             conn.execute(
@@ -379,7 +379,8 @@ async def create_found_item(
         )
         rid = cur.lastrowid
 
-    matches = matching.cosine_lost_item_matches(qvec)
+    matches = matching.cosine_lost_item_matches(
+        qvec, matching.IMAGE if saved else matching.TEXT)
     return {"found_report_id": rid, "used": "images" if saved else "text",
             "matches": [{**m, "image_url": _upload_url(m.get("image_path"))} for m in matches]}
 

@@ -68,4 +68,15 @@ DEMO_NAME = os.getenv("UPFOUND_DEMO_NAME", "ผู้ใช้ทดลอง")
 
 # Matching
 MATCH_TOP_K = int(os.getenv("UPFOUND_MATCH_TOP_K", "5"))
-MATCH_MIN_SCORE = float(os.getenv("UPFOUND_MATCH_MIN_SCORE", "0.20"))  # cosine floor
+
+# CLIP cosine sits on two scales that no single floor can serve. Measured against
+# real crops: text↔image runs ~0.19-0.28 (keyboard mash already reaches 0.22, so
+# a floor under ~0.25 admits pure noise), while image↔image runs ~0.45-1.0 (even
+# unrelated photos score ~0.55, so the same floor filters nothing at all).
+MATCH_MIN_SCORE_TEXT = float(os.getenv("UPFOUND_MATCH_MIN_SCORE_TEXT", "0.25"))
+MATCH_MIN_SCORE_IMAGE = float(os.getenv("UPFOUND_MATCH_MIN_SCORE_IMAGE", "0.65"))
+
+# Raw cosine reads as a terrible number to a user (a strong text match is only
+# ~0.28), so matches also carry a 0-1 confidence rescaled from floor to ceiling.
+MATCH_FULL_SCORE_TEXT = float(os.getenv("UPFOUND_MATCH_FULL_SCORE_TEXT", "0.32"))
+MATCH_FULL_SCORE_IMAGE = float(os.getenv("UPFOUND_MATCH_FULL_SCORE_IMAGE", "0.95"))
