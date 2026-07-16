@@ -287,6 +287,12 @@ pkill -f "uvicorn app[.]main"; ~/UpFound/backend/start-public.sh
 
 ## หมายเหตุสำคัญ
 
+- **🛡️ ความปลอดภัย:** อัปโหลดถูกตรวจว่าเป็น**รูปจริงด้วย PIL** + เซฟด้วยนามสกุลที่เซิร์ฟเวอร์เลือกเอง
+  (กัน stored-XSS จากไฟล์ปลอม content-type) · endpoint เขียนข้อมูลมี **rate limit ต่อ IP**
+  (login/register/report) กัน brute-force + สแปม + เผา Gemini quota · ทุก response มี `nosniff`
+  **ยังเหลือความเสี่ยงเชิงออกแบบ:** feed สาธารณะโชว์รูป+สถานที่, บัญชี demo แจกรหัสสาธารณะ,
+  และการ "แจ้งพบ" แบบไม่ต้อง login → เปิดช่องสวมรอยเป็นคนเก็บของ (ปัญหา trust ไม่ใช่โค้ด) —
+  ถ้าจะใช้จริงจังควรบังคับ login ตอนแจ้งพบ + ซ่อนเบอร์ไว้หลังปุ่ม "ขอติดต่อ"
 - **🔑 API key:** อยู่ใน `backend/.env` เท่านั้น — gitignore ครอบทุก variant (`.env`, `.env.bak`,
   `.env.local` …) **ห้าม commit / ห้ามส่งผ่านแชท** ถ้าหลุดให้ revoke ทันทีแล้วสร้างใหม่
 - **☁️ Cloudflare cache:** zone ต้องตั้ง **Browser Cache TTL = `Respect Existing Headers`**

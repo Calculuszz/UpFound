@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -81,6 +82,63 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="UpFound backend", lifespan=lifespan)
+
+
+# --------------------------------------------------------------------------- #
+# abuse controls — every write path is reachable without an account (a finder
+# needs none) and the DB holds people's phone numbers, so throttle by client IP:
+# slows brute-forcing logins, mass-registering, harvesting contacts through the
+# public demo login, and burning the Gemini quota / disk with spammed uploads.
+# In-memory is enough for a single-process booth deployment.
+# --------------------------------------------------------------------------- #
+import time
+from collections import defaultdict, deque
+
+# path → (max POSTs, window seconds) per IP
+_RL_RULES: dict[str, tuple[int, int]] = {
+    "/api/login": (10, 60),
+    "/api/register": (5, 300),
+    "/api/reports": (20, 60),
+    "/api/found-items": (20, 60),
+    "/api/found-persons": (20, 60),
+    "/api/person-reports": (20, 60),
+}
+_rl_hits: dict[tuple[str, str], deque] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    # The socket peer is always the tunnel (127.0.0.1); the real client is in the
+    # header Cloudflare adds. Fall back to the peer for direct/local access.
+    return (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "?")
+    )
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    rule = _RL_RULES.get(request.url.path)
+    if rule and request.method == "POST":
+        limit, window = rule
+        hits = _rl_hits[(_client_ip(request), request.url.path)]
+        now = time.monotonic()
+        while hits and now - hits[0] > window:
+            hits.popleft()
+        if len(hits) >= limit:
+            return JSONResponse({"detail": "คำขอถี่เกินไป กรุณาลองใหม่อีกสักครู่"}, status_code=429)
+        hits.append(now)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    # Defence in depth for the upload path: even if something non-image slips
+    # through, the browser must not sniff it into an executable type.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return resp
 
 
 # --------------------------------------------------------------------------- #
@@ -162,23 +220,44 @@ def _first_upload_url(image_paths_json: str | None) -> str | None:
     return _upload_url(arr[0]) if arr else None
 
 
+# Real image format (from decoding the bytes) → the extension we save under. The
+# client's filename and content-type are attacker-controlled and were the stored
+# XSS vector: an .html uploaded with a fake image/jpeg content-type got saved as
+# .html and served from our own origin as text/html, so any script in it ran with
+# access to the visitor's token in localStorage. We now ignore both labels and
+# trust only what PIL can actually decode.
+_IMAGE_EXT = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "GIF": ".gif", "BMP": ".bmp"}
+
+
 def _save_uploads(images: list[UploadFile]) -> list[str]:
-    """Persist uploaded images after validating type + size. Rejects non-images
-    and oversized files with 400 rather than letting them hit disk / CLIP."""
+    """Persist genuine images only. A file that PIL cannot decode into a known
+    image format is rejected before it touches disk, and the on-disk name uses a
+    server-chosen extension so nothing user-named (.html, .svg, .js) can ever be
+    served back."""
+    import io
+
+    from PIL import Image, UnidentifiedImageError
+
     saved: list[str] = []
     max_bytes = config.MAX_UPLOAD_MB * 1024 * 1024
     for up in images or []:
         if not up.filename:
             continue
-        ct = (up.content_type or "").lower()
-        if ct and ct not in config.ALLOWED_IMAGE_TYPES:
-            raise HTTPException(400, f"ไฟล์ไม่รองรับ: {ct} (รับเฉพาะรูปภาพ)")
-        data = up.file.read()
+        data = up.file.read(max_bytes + 1)
         if len(data) > max_bytes:
             raise HTTPException(400, f"ไฟล์ใหญ่เกิน {config.MAX_UPLOAD_MB} MB")
         if not data:
             continue
-        dest = config.UPLOAD_DIR / f"{uuid.uuid4().hex}{Path(up.filename).suffix or '.jpg'}"
+        try:
+            with Image.open(io.BytesIO(data)) as probe:
+                probe.verify()               # structural check; consumes the stream
+            fmt = Image.open(io.BytesIO(data)).format   # re-open to read the format
+        except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
+            raise HTTPException(400, "ไฟล์ไม่ใช่รูปภาพที่ถูกต้อง")
+        ext = _IMAGE_EXT.get(fmt or "")
+        if ext is None:
+            raise HTTPException(400, f"ชนิดรูปไม่รองรับ: {fmt}")
+        dest = config.UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
         dest.write_bytes(data)
         saved.append(str(dest))
     return saved
