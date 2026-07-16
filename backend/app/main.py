@@ -471,6 +471,20 @@ def health():
 # --------------------------------------------------------------------------- #
 # static — frontend + images (same-origin, no CORS). Mounted LAST so /api wins.
 # --------------------------------------------------------------------------- #
+class _RevalidatingStatic(StaticFiles):
+    """Frontend assets that must never be served stale. Cloudflare caches .js/.css
+    by extension and tells browsers to hold them for 4h, so without this a deploy
+    stays invisible to anyone who loaded the page before it. "no-cache" still
+    allows caching — it just forces a revalidate, so unchanged files cost a 304.
+    Uploaded/crop images keep the default (their filenames are unique, so a stale
+    hit is impossible and caching them is a win)."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 app.mount("/edgeout", StaticFiles(directory=str(config.EDGE_OUT_DIR)), name="edgeout")
 app.mount("/uploads", StaticFiles(directory=str(config.UPLOAD_DIR)), name="uploads")
-app.mount("/", StaticFiles(directory=str(config.WEB_DIR), html=True), name="web")
+app.mount("/", _RevalidatingStatic(directory=str(config.WEB_DIR), html=True), name="web")
