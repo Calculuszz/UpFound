@@ -286,6 +286,7 @@ async def create_report(
         )
         rid = cur.lastrowid
 
+    modality = matching.IMAGE if saved else matching.TEXT
     if saved:
         results = matching.cosine_matches(qvec, matching.IMAGE)
     else:
@@ -293,6 +294,13 @@ async def create_report(
         # let the judge decide what actually gets shown
         results = _rerank_crops(text, matching.cosine_matches(
             qvec, matching.TEXT, top_k=config.RERANK_CANDIDATES))
+
+    # A camera sighting only says where the item was; someone who already handed
+    # it in can hand it back, so search their reports too. Without this the two
+    # directions were asymmetric — reporting a find searched for owners, but
+    # reporting a loss only ever looked at crops, so whether a pair matched came
+    # down to which form the user happened to fill in first.
+    found_reports = matching.cosine_item_report_matches(qvec, modality, "found")
     with db() as conn:
         for r in results:
             conn.execute(
@@ -305,6 +313,9 @@ async def create_report(
         "report_id": rid,
         "used": "images" if saved else "text",
         "matches": [{**r, "crop_url": _crop_url(r.get("crop_ref"))} for r in results],
+        "found_matches": [
+            {**m, "image_url": _upload_url(m.get("image_path"))} for m in found_reports
+        ],
     }
 
 
@@ -437,8 +448,8 @@ async def create_found_item(
         )
         rid = cur.lastrowid
 
-    matches = matching.cosine_lost_item_matches(
-        qvec, matching.IMAGE if saved else matching.TEXT)
+    matches = matching.cosine_item_report_matches(
+        qvec, matching.IMAGE if saved else matching.TEXT, "lost")
     return {"found_report_id": rid, "used": "images" if saved else "text",
             "matches": [{**m, "image_url": _upload_url(m.get("image_path"))} for m in matches]}
 

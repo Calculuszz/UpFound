@@ -308,24 +308,48 @@
     const box = formEl.querySelector(".uf-flash") || (function () {
       const b = document.createElement("div"); b.className = "uf-flash mt-3"; formEl.appendChild(b); return b;
     })();
-    if (!data.matches || !data.matches.length) {
+    const cam = data.matches || [];
+    const handedIn = data.found_matches || [];
+    if (!cam.length && !handedIn.length) {
       box.innerHTML = '<div class="alert alert-warning mb-0">แจ้งของหายสำเร็จ (รายงาน #' + data.report_id +
         ') แต่ยังไม่พบสิ่งของที่ตรงกันในระบบ</div>';
       return;
     }
     let html = '<div class="alert alert-success">แจ้งของหายสำเร็จ (รายงาน #' + data.report_id +
-      ') — พบ ' + data.matches.length + ' รายการที่อาจตรงกัน:</div><div class="row g-3">';
-    data.matches.forEach(function (m) {
-      const pct = Math.round((m.confidence || 0) * 100);
-      html += '<div class="col-6 col-md-4"><div class="card h-100">' +
-        (m.crop_url ? '<img src="' + m.crop_url + '" class="card-img-top" style="object-fit:cover;height:140px">' : "") +
-        '<div class="card-body p-2"><div class="fw-500">' + (m.object_class || "?") + "</div>" +
-        '<div class="small text-muted">' + (m.zone || "") + "</div>" +
-        '<div class="small">ความมั่นใจ ' + pct + "%</div>" +
-        '<div class="small text-muted">' + (m.capture_ts || "").slice(0, 19) + "</div>" +
-        "</div></div></div>";
-    });
-    html += "</div>";
+      ') — พบ ' + (cam.length + handedIn.length) + ' รายการที่อาจตรงกัน:</div>';
+
+    // someone holding the item can give it back, so lead with those
+    if (handedIn.length) {
+      html += '<h6 class="mt-2">🙋 มีคนเก็บได้แล้ว — ติดต่อได้เลย</h6><div class="row g-3">';
+      handedIn.forEach(function (m) {
+        const pct = Math.round((m.confidence || 0) * 100);
+        html += '<div class="col-6 col-md-4"><div class="card h-100 border-success">' +
+          (m.image_url ? '<img src="' + m.image_url + '" class="card-img-top" style="object-fit:cover;height:140px">' : "") +
+          '<div class="card-body p-2">' +
+          '<div class="fw-500">' + escapeHtml(m.name || "ไม่ทราบชื่อ") + "</div>" +
+          (m.location ? '<div class="small text-muted">พบที่ ' + escapeHtml(m.location) + "</div>" : "") +
+          '<div class="small">ความมั่นใจ ' + pct + "%</div>" +
+          (m.contact ? '<div class="small fw-500">ติดต่อ: ' + escapeHtml(m.contact) + "</div>"
+                     : '<div class="small text-muted">ไม่ได้ทิ้งช่องทางติดต่อไว้</div>') +
+          "</div></div></div>";
+      });
+      html += "</div>";
+    }
+
+    if (cam.length) {
+      html += '<h6 class="mt-3">📷 กล้องเจอของที่อาจใช่</h6><div class="row g-3">';
+      cam.forEach(function (m) {
+        const pct = Math.round((m.confidence || 0) * 100);
+        html += '<div class="col-6 col-md-4"><div class="card h-100">' +
+          (m.crop_url ? '<img src="' + m.crop_url + '" class="card-img-top" style="object-fit:cover;height:140px">' : "") +
+          '<div class="card-body p-2"><div class="fw-500">' + (m.object_class || "?") + "</div>" +
+          '<div class="small text-muted">' + (m.zone || "") + "</div>" +
+          '<div class="small">ความมั่นใจ ' + pct + "%</div>" +
+          '<div class="small text-muted">' + (m.capture_ts || "").slice(0, 19) + "</div>" +
+          "</div></div></div>";
+      });
+      html += "</div>";
+    }
     box.innerHTML = html;
   }
 })();

@@ -87,19 +87,24 @@ def cosine_matches(
     return out
 
 
-def cosine_lost_item_matches(
-    query_vec: np.ndarray, modality: str, top_k: int | None = None,
+def cosine_item_report_matches(
+    query_vec: np.ndarray, modality: str, kind: str, top_k: int | None = None,
     min_score: float | None = None,
 ) -> list[dict]:
-    """Match a FOUND item's photo/description against LOST item reports (owners),
-    so a finder's report surfaces the people looking for it."""
+    """Match against item reports of `kind` — both directions of the same search.
+
+    kind='lost'  → owners hunting for it, shown to whoever reports finding one.
+    kind='found' → items already handed in, shown to whoever reports losing one.
+    """
     top_k = top_k or config.MATCH_TOP_K
     min_score, full_score = _band(modality, min_score)
 
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, item_name, color, location, detail, image_paths, embedding "
-            "FROM lost_reports WHERE kind='lost' AND embedding IS NOT NULL AND embedding != ''"
+            "SELECT id, item_name, color, location, detail, contact, image_paths, "
+            "embedding FROM lost_reports "
+            "WHERE kind=? AND embedding IS NOT NULL AND embedding != ''",
+            (kind,),
         ).fetchall()
     if not rows:
         return []
@@ -137,6 +142,7 @@ def cosine_lost_item_matches(
             "color": m["color"],
             "location": m["location"],
             "detail": m["detail"],
+            "contact": m["contact"],
             "image_path": img,
             "score": round(s, 4),
             "confidence": _confidence(s, min_score, full_score),
