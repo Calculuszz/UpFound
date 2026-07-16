@@ -460,3 +460,22 @@ select {
 .accordion-button:focus {
     box-shadow: 0 0 0 0.2rem rgba(19, 109, 207, 0.15);
 }
+
+@media screen and (max-width:640px) {
+    .feature-card {
+        display: inline-block;
+        min-height: fit-content;
+        max-height: 120px;
+        margin-bottom: 10px;
+    }
+    .mw {
+        max-width: 40px;
+        margin-bottom: 0;
+        margin-right: 15px;
+    }
+    .btn-h2 {
+        display: inline;
+        max-width: 100px;
+    }
+    
+}
