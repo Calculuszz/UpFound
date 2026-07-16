@@ -94,6 +94,57 @@ def _crop_url(crop_ref: str | None) -> str | None:
     return "/edgeout/" + rel[len("out/"):] if rel.startswith("out/") else None
 
 
+def _crop_path(crop_ref: str | None) -> Path | None:
+    """EdgeAI crop_ref ('./out/crops/x.jpg') → the file on disk."""
+    if not crop_ref:
+        return None
+    rel = crop_ref.lstrip("./")
+    return config.EDGE_OUT_DIR / rel[len("out/"):] if rel.startswith("out/") else None
+
+
+def _rerank_crops(description: str, results: list[dict]) -> list[dict]:
+    """Let Gemini look at the crops CLIP shortlisted and drop the ones that
+    aren't the item at all (cosine put a tablet top for "black wallet").
+
+    Any failure — no key, no wifi, unparsable reply — falls back to CLIP's own
+    ranking, so this can only improve results, never withhold them. When the
+    model does answer, its verdict replaces the cosine-derived confidence,
+    because "the judge looked at it" means more than a rescaled dot product.
+    """
+    from . import llm
+
+    trimmed = results[: config.MATCH_TOP_K]
+    if not results or not description.strip() or not llm.enabled():
+        return trimmed
+
+    from PIL import Image
+
+    blobs: list[tuple[str, bytes]] = []
+    for r in results:
+        p = _crop_path(r.get("crop_ref"))
+        if not (p and p.exists()):
+            continue
+        try:
+            with Image.open(p) as im:
+                w, h = im.size
+            if w * h < config.MIN_CROP_PIXELS:
+                continue  # unreadable; judging it would only invent confidence
+            blobs.append((str(r["event_id"]), p.read_bytes()))
+        except (OSError, ValueError):
+            pass
+    scores = llm.rerank(description, blobs)
+    if not scores:
+        return trimmed
+
+    kept = [
+        {**r, "llm_score": s, "confidence": round(s / 100, 4)}
+        for r in results
+        if (s := scores.get(str(r["event_id"]), 0)) >= config.RERANK_MIN_SCORE
+    ]
+    kept.sort(key=lambda r: r["llm_score"], reverse=True)
+    return kept[: config.MATCH_TOP_K]
+
+
 def _upload_url(path: str | None) -> str | None:
     """A stored upload path → served URL under /uploads."""
     if not path:
@@ -214,6 +265,7 @@ async def create_report(
     saved = _save_uploads(images)
 
     # query vector: average of uploaded photos, else CLIP text of the description
+    text = ""
     if saved:
         vecs = np.vstack([embeddings.embed_image(p) for p in saved])
         qvec = vecs.mean(axis=0)
@@ -234,7 +286,13 @@ async def create_report(
         )
         rid = cur.lastrowid
 
-    results = matching.cosine_matches(qvec, matching.IMAGE if saved else matching.TEXT)
+    if saved:
+        results = matching.cosine_matches(qvec, matching.IMAGE)
+    else:
+        # cosine recalls the right crop but ranks it badly, so shortlist wide and
+        # let the judge decide what actually gets shown
+        results = _rerank_crops(text, matching.cosine_matches(
+            qvec, matching.TEXT, top_k=config.RERANK_CANDIDATES))
     with db() as conn:
         for r in results:
             conn.execute(

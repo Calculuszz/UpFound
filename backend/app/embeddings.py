@@ -66,10 +66,10 @@ _TH_EN = {
 _TH_KEYS = sorted(_TH_EN, key=len, reverse=True)
 
 
-def to_english(text: str) -> str:
-    """Rewrite a Thai query into the English CLIP understands. Unknown words are
-    dropped unless nothing matched, in which case the original is returned so the
-    caller still gets a (weak) vector rather than an empty one."""
+def _to_english_offline(text: str) -> str:
+    """Dictionary pass. Unknown words are dropped unless nothing matched, in which
+    case the original is returned so the caller still gets a (weak) vector rather
+    than an empty one."""
     rest = text
     hits = []
     for th in _TH_KEYS:
@@ -78,6 +78,18 @@ def to_english(text: str) -> str:
             rest = rest.replace(th, " ")
     leftover = " ".join(w for w in rest.split() if w.isascii())
     return " ".join(x for x in (*hits, leftover) if x).strip() or text
+
+
+def to_english(text: str) -> str:
+    """Rewrite a Thai query into the English CLIP understands.
+
+    Gemini handles the open vocabulary (the dictionary only knows the words we
+    thought of); the dictionary covers it when the key is unset or the call
+    fails, so search still works with the booth's wifi down.
+    """
+    from . import llm
+
+    return llm.translate_to_english(text) or _to_english_offline(text)
 
 
 def _load() -> None:

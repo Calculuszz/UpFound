@@ -9,6 +9,24 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent          # ~/UpFound/backend
+
+
+def _load_dotenv() -> None:
+    """Pull backend/.env into the environment before anything reads it. Secrets
+    (API keys) live there because it is gitignored; real env vars still win."""
+    path = BASE_DIR / ".env"
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 DATA_DIR = Path(os.getenv("UPFOUND_DATA_DIR", BASE_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"                          # user-uploaded lost-item photos
 DB_PATH = os.getenv("UPFOUND_DB", str(DATA_DIR / "upfound.db"))
@@ -80,3 +98,28 @@ MATCH_MIN_SCORE_IMAGE = float(os.getenv("UPFOUND_MATCH_MIN_SCORE_IMAGE", "0.65")
 # ~0.28), so matches also carry a 0-1 confidence rescaled from floor to ceiling.
 MATCH_FULL_SCORE_TEXT = float(os.getenv("UPFOUND_MATCH_FULL_SCORE_TEXT", "0.32"))
 MATCH_FULL_SCORE_IMAGE = float(os.getenv("UPFOUND_MATCH_FULL_SCORE_IMAGE", "0.95"))
+
+# ---- Gemini (optional) ----------------------------------------------------- #
+# Everything LLM-backed degrades to the offline path when the key is missing or
+# the call fails — booth wifi dying must not take search down with it.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# flash-lite is vision-capable and the lowest-latency tier, which is what these
+# two jobs need (translate a phrase; look at a crop). Swap to gemini-3.5-flash
+# here if the re-rank turns out to need a stronger judge.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "12"))
+
+# Translate Thai queries with the LLM instead of the built-in dictionary.
+LLM_TRANSLATE = os.getenv("UPFOUND_LLM_TRANSLATE", "1") not in ("0", "false", "False")
+# Let the LLM look at the candidate crops and throw out CLIP's false positives.
+LLM_RERANK = os.getenv("UPFOUND_LLM_RERANK", "1") not in ("0", "false", "False")
+# CLIP must hand the judge more candidates than we intend to show, or there is
+# nothing to reject; text↔image cosine ranks poorly but recalls fine.
+RERANK_CANDIDATES = int(os.getenv("UPFOUND_RERANK_CANDIDATES", "10"))
+RERANK_MIN_SCORE = int(os.getenv("UPFOUND_RERANK_MIN_SCORE", "50"))  # LLM 0-100
+
+# A third of EdgeAI's crops are under 60x60 — a few hundred pixels of dark blur.
+# Nothing can tell a wallet from a phone in those, and the judge scores them 95
+# regardless of being told not to guess, so they are not usable evidence and are
+# never offered to it. The real fix is a min-bbox filter upstream in EdgeAI.
+MIN_CROP_PIXELS = int(os.getenv("UPFOUND_MIN_CROP_PIXELS", str(60 * 60)))
