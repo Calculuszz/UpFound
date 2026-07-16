@@ -26,6 +26,9 @@ EdgeAI/out/events.jsonl
 # ---- Backend runtime data (sqlite db + user uploads) ----
 backend/data/
 
+# ---- Public-deploy runtime logs (backend + cloudflare tunnel) ----
+backend/.tunnel-*.log
+
 # ---- OS / editor junk ----
 .DS_Store
 Thumbs.db

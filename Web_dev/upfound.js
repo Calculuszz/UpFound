@@ -209,8 +209,21 @@
         });
         renderFeed(display, rows);
       };
-      api("/api/feed").then(function (data) { all = data; paint(""); })
-        .catch(function (e) { display.innerHTML = '<p class="text-danger">โหลดข้อมูลไม่ได้: ' + e.message + "</p>"; });
+      let lastJson = "";
+      const load = function (first) {
+        return api("/api/feed").then(function (data) {
+          const json = JSON.stringify(data);
+          if (json === lastJson) return;  // unchanged — don't wipe the grid under the reader
+          lastJson = json;
+          all = data;
+          paint(bar ? bar.value : "");
+        }).catch(function (e) {
+          // a failed background refresh must not blank out what's already on screen
+          if (first) display.innerHTML = '<p class="text-danger">โหลดข้อมูลไม่ได้: ' + e.message + "</p>";
+        });
+      };
+      load(true);
+      setInterval(function () { if (!document.hidden) load(false); }, 10000);
       if (btn) btn.addEventListener("click", function (e) { e.preventDefault(); paint(bar.value); });
       if (bar) bar.addEventListener("input", function () { paint(bar.value); });
     }
