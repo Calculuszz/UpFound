@@ -103,9 +103,10 @@ CONF_BY_CLASS: dict[int, float] = {
 PERSON_CONF = float(os.getenv("EDGE_PERSON_CONF", "0.35"))
 
 # Reject item boxes whose shorter side is below this many pixels. Kills tiny
-# spurious detections that YOLO occasionally emits on background texture.
-# Set very low (10) for overhead CCTV where objects appear small.
-MIN_BBOX_SIDE = int(os.getenv("EDGE_MIN_BBOX_SIDE", "10"))
+# spurious detections that YOLO occasionally emits on background texture, and the
+# unusable few-hundred-pixel crops the backend's LLM re-rank had to drop anyway.
+# 30 is safe on the 2560x1440 camera — a phone on the floor measures ~87px there.
+MIN_BBOX_SIDE = int(os.getenv("EDGE_MIN_BBOX_SIDE", "30"))
 
 
 # ---------------------------------------------------------------------------
@@ -117,21 +118,25 @@ if DETECTOR == "yoloe":
     # YOLOE open-vocab weights (seg head; masks unused). ~68MB, auto-downloaded.
     YOLO_WEIGHTS = os.getenv("EDGE_YOLOE_WEIGHTS", "yoloe-11l-seg.pt")
     # Comma-separated text prompts; their ORDER defines the class ids. Keep
-    # near-duplicates OUT (e.g. don't list both "tablet" and "wallet") — over-
-    # lapping prompts make the per-frame class flicker (majority-vote still
-    # resolves the fired event's class, but it's noisier). Add e.g. "wallet",
-    # "water bottle", "headphones" via EDGE_YOLOE_PROMPTS when you need them.
+    # near-duplicates OUT (e.g. "cell phone" + "smartphone" land on the same box
+    # and just make its label flicker), and leave out classes you don't expect —
+    # "book" was firing on a wall poster at 0.55. This default targets the booth's
+    # focus items (wallet + phone) first, then common bags/electronics; measured
+    # per prompt on the real camera: wallet ~0.9, "cell phone" 0.39 (beats
+    # "phone"/"smartphone"). Add "water bottle", "headphones", etc. when needed.
     YOLOE_PROMPTS = [
         p.strip() for p in os.getenv(
             "EDGE_YOLOE_PROMPTS",
-            "backpack,handbag,suitcase,laptop,tablet,umbrella,book",
+            "wallet,cell phone,backpack,handbag,laptop,tablet",
         ).split(",") if p.strip()
     ]
     ITEM_CLASSES = {i: name for i, name in enumerate(YOLOE_PROMPTS)}
     PERSON_CLASS_ID = len(YOLOE_PROMPTS)  # "person" is appended by the tracker
-    # Open-vocab confidence runs lower than COCO; one floor for all prompts
-    # (dwell + owner-left still gate false fires). Tune via EDGE_YOLOE_CONF.
-    CONF_MIN = float(os.getenv("EDGE_YOLOE_CONF", "0.25"))
+    # Open-vocab confidence runs lower than COCO; one floor for all prompts.
+    # Cast wide at 0.10 — the hard item (a top-down phone on dark carpet caps
+    # ~0.39) needs headroom, and dwell + owner-left + MIN_BBOX_SIDE gate the
+    # false fires that a low floor lets in. Raise EDGE_YOLOE_CONF if too noisy.
+    CONF_MIN = float(os.getenv("EDGE_YOLOE_CONF", "0.10"))
     CONF_BY_CLASS = {i: CONF_MIN for i in ITEM_CLASSES}
     ACTIVE_MODEL_VERSION = "yoloe11l_clip-vitb32"
 else:
