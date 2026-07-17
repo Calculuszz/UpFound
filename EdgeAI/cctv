@@ -37,6 +37,25 @@ print_scp() {
   echo ""
 }
 
+# เก็บ preview ล่าสุดกี่ไฟล์ (กันดิสก์ Spark เต็ม เพราะไฟล์ไม่ซ้ำกันแล้ว)
+KEEP_PREVIEWS="${KEEP_PREVIEWS:-20}"
+
+# หลังรันเสร็จ: ทำสำเนา "ล่าสุด" ชื่อคงที่ + อัปเดต manifest + ตัดไฟล์เก่า
+finalize_preview() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  # สำเนาชื่อคงที่ preview_<det>.mp4 → URL /edgeout เดิม + auto-download เดิมยังใช้ได้
+  cp -f "$f" "out/preview_${DET}.mp4"
+  # ตัด preview เก่าที่เกิน KEEP_PREVIEWS ก่อน (เฉพาะไฟล์ timestamped ไม่แตะตัวชื่อคงที่)...
+  ls -1t out/preview_*_*.mp4 2>/dev/null | tail -n +"$((KEEP_PREVIEWS + 1))" | xargs -r rm -f || true
+  # ...แล้วค่อยเขียน manifest จากไฟล์ที่เหลือจริง (ใหม่สุดก่อน) ให้ PC ไล่โหลด
+  ls -1t out/preview_*_*.mp4 2>/dev/null | sed 's|out/||' > out/previews.txt || true
+  echo ""
+  echo "✅ เซฟ preview: $f"
+  echo "   ดูบนเว็บได้เลย: https://up-found.com/edgeout/$(basename "$f")"
+  echo ""
+}
+
 usage() {
   cat <<'USAGE'
 UpFound Edge AI — ตัวช่วยรันสั้นๆ
@@ -71,16 +90,16 @@ case "$cmd" in
     # อาร์กิวเมนต์แรกที่ไม่ใช่ flag = ชื่อคลิป (ที่เหลือส่งต่อให้ run.py)
     if [ $# -gt 0 ] && [[ "$1" != -* ]]; then src="$1"; shift; else src="804956840.350391.mp4"; fi
     case "$src" in */*) : ;; *) src="vedio_test/$src" ;; esac   # เติม vedio_test/ ให้ถ้าใส่แค่ชื่อ
-    out="out/preview_${DET}.mp4"
+    out="out/preview_${DET}_$(date +%Y%m%d-%H%M%S).mp4"
     echo "▶  clip=$src  detector=$DET  → $out"
     python -m edge_cctv.run --source "$src" --no-embed --save-preview "$out" "$@"
-    print_scp "$out"
+    finalize_preview "$out"
     ;;
   cam)
-    out="out/preview_${DET}.mp4"
+    out="out/preview_${DET}_$(date +%Y%m%d-%H%M%S).mp4"
     echo "▶  camera (RTSP)  detector=$DET  → $out"
     python -m edge_cctv.run --save-preview "$out" "$@"
-    print_scp "$out"
+    finalize_preview "$out"
     ;;
   events)
     n="${1:-20}"
