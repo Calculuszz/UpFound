@@ -223,7 +223,7 @@
         });
       };
       load(true);
-      setInterval(function () { if (!document.hidden) load(false); }, 10000);
+      setInterval(function () { if (!document.hidden) load(false); }, 5000);
       if (btn) btn.addEventListener("click", function (e) { e.preventDefault(); paint(bar.value); });
       if (bar) bar.addEventListener("input", function () { paint(bar.value); });
     }

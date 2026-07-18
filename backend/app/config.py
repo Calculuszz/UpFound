@@ -70,7 +70,9 @@ def _resolve_jwt_secret() -> str:
 JWT_SECRET = _resolve_jwt_secret()
 
 # Auto-ingest EdgeAI events every N seconds (0 disables the background poller).
-INGEST_INTERVAL_SECONDS = int(os.getenv("UPFOUND_INGEST_INTERVAL", "30"))
+# 5s so a fired detection reaches the public feed in a few seconds at the booth;
+# the poll just tails events.jsonl into the DB, so a tight interval is cheap.
+INGEST_INTERVAL_SECONDS = int(os.getenv("UPFOUND_INGEST_INTERVAL", "5"))
 
 # Upload limits / validation.
 MAX_UPLOAD_MB = int(os.getenv("UPFOUND_MAX_UPLOAD_MB", "10"))

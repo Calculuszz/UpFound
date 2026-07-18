@@ -26,7 +26,7 @@ def _color(fired: bool):
     return (0, 0, 255) if fired else (0, 200, 0)
 
 
-def _draw_owner_links(cv2, canvas, item_dets, persons, dwell) -> None:
+def _draw_owner_links(cv2, canvas, item_dets, persons, dwell, scale: float = 1.0) -> None:
     """Connect each item to nearby person(s) within the owner radius.
 
     The link is yellow when the person is the *nearest* (most likely placer)
@@ -51,16 +51,16 @@ def _draw_owner_links(cv2, canvas, item_dets, persons, dwell) -> None:
             bright = (0, 255, 255)          # nearest → bright yellow
             dim = (60, 170, 170)            # others → dim yellow
             color = bright if rank == 0 else dim
-            thickness = 2 if rank == 0 else 1
+            thickness = max(1, round((2 if rank == 0 else 1) * scale))
             cv2.line(canvas, ipt, ppt, color, thickness, cv2.LINE_AA)
-            cv2.circle(canvas, ppt, 4, color, -1)
+            cv2.circle(canvas, ppt, max(3, round(4 * scale)), color, -1)
             mid = ((ipt[0] + ppt[0]) // 2, (ipt[1] + ppt[1]) // 2)
             cv2.putText(
                 canvas, f"{dist:0.0f}px", mid,
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA,
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4 * scale, color, max(1, round(scale)), cv2.LINE_AA,
             )
         if near:
-            cv2.circle(canvas, ipt, 4, (0, 255, 255), -1)  # item end marker
+            cv2.circle(canvas, ipt, max(3, round(4 * scale)), (0, 255, 255), -1)  # item end marker
 
 
 def annotate_frame(cv2, frame, item_dets, dwell, now: datetime, persons=None):
@@ -71,16 +71,26 @@ def annotate_frame(cv2, frame, item_dets, dwell, now: datetime, persons=None):
     """
     canvas = frame.copy()
 
+    # Scale line/text with resolution. Everything below was drawn at a fixed 1-2px
+    # / 0.5-font, which looks right on a full-res frame but the live view shrinks
+    # the frame to 960px wide, turning a 2px box into a near-invisible hairline.
+    # Sizing off the frame width keeps boxes bold both in the mp4 and after resize.
+    s = max(1.0, canvas.shape[1] / 960.0)
+    box_t = max(2, round(2 * s))     # item box
+    thin_t = max(1, round(s))        # person box
+    font_s = 0.5 * s
+    font_t = max(1, round(2 * s))
+
     # person boxes (thin, blue) — context for who might have placed an item
     for p in persons or []:
         x1, y1, x2, y2 = p.bbox
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 128, 0), 1)
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 128, 0), thin_t)
 
     # owner links: draw a line from each item to every person within
     # OWNER_RADIUS (the same threshold the detector uses to decide a placer),
     # so it's obvious at a glance that someone is standing near the object.
     # Drawn first → stays under the boxes/labels.
-    _draw_owner_links(cv2, canvas, item_dets, persons, dwell)
+    _draw_owner_links(cv2, canvas, item_dets, persons, dwell, s)
 
     # item boxes with dwell readout
     for det in item_dets:
@@ -89,7 +99,7 @@ def annotate_frame(cv2, frame, item_dets, dwell, now: datetime, persons=None):
         fired = bool(st and st.fired)
         dwell_s = dwell.dwell_seconds_of(det.track_id, now)
         color = _color(fired)
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, box_t)
 
         voted = dwell.voted_class(det.track_id)
         cls_id = voted if voted is not None else det.cls
@@ -104,8 +114,8 @@ def annotate_frame(cv2, frame, item_dets, dwell, now: datetime, persons=None):
             gate = ""
         label = f"{cls_name} #{det.track_id} {det.conf:0.2f} {status}{gate}"
         cv2.putText(
-            canvas, label, (x1, max(0, y1 - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA,
+            canvas, label, (x1, max(0, y1 - round(4 * s))),
+            cv2.FONT_HERSHEY_SIMPLEX, font_s, color, font_t, cv2.LINE_AA,
         )
 
     return canvas
