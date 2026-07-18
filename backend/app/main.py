@@ -535,7 +535,10 @@ async def create_found_item(
 
 @app.get("/api/feed")
 def feed(limit: int = 60):
-    """Public gallery for data.html — lost items + lost persons, newest first."""
+    """Public gallery for data.html — user reports + items the camera detected,
+    newest first. Camera detections were previously invisible here (they only
+    surfaced as matches when someone reported a loss), so a freshly-abandoned
+    item never appeared on the site; include them as their own 'camera' kind."""
     out = []
     with db() as conn:
         for r in conn.execute(
@@ -566,6 +569,20 @@ def feed(limit: int = 60):
                 "status": r["status"],
                 "image_url": _first_upload_url(r["image_paths"]),
                 "created_at": r["created_at"],
+            })
+        for r in conn.execute(
+            "SELECT event_id, object_class, zone, capture_ts, crop_ref "
+            "FROM detected_events ORDER BY rowid DESC LIMIT ?", (limit,)
+        ).fetchall():
+            out.append({
+                "kind": "camera",
+                "id": r["event_id"],
+                "name": r["object_class"],
+                "detail": "กล้องตรวจพบของที่ถูกทิ้งไว้",
+                "location": r["zone"],
+                "status": "camera",
+                "image_url": _crop_url(r["crop_ref"]),
+                "created_at": r["capture_ts"],
             })
     out.sort(key=lambda e: e["created_at"], reverse=True)
     return out[:limit]

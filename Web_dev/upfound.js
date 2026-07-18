@@ -240,7 +240,7 @@
       const media = r.image_url
         ? '<img src="' + r.image_url + '" class="report-card-img" alt="">'
         : '<div class="report-media-placeholder"></div>';
-      const badges = { "person-found": "พบบุคคล", "person": "บุคคลหาย", "item-found": "พบสิ่งของ", "item": "ของหาย" };
+      const badges = { "person-found": "พบบุคคล", "person": "บุคคลหาย", "item-found": "พบสิ่งของ", "item": "ของหาย", "camera": "📷 กล้องเจอ" };
       const badge = badges[r.kind] || "สิ่งของ";
       return '<div class="col-12 col-sm-6 col-lg-4"><div class="report-card' +
         (done ? " report-card-success" : "") + '">' +
