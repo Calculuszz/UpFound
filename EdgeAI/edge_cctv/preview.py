@@ -175,6 +175,10 @@ class PreviewWriter:
         self.fps = fps if fps and fps > 0 else 25.0
         self._writer = None
         self._frames_written = 0
+        # Latest annotated frame, dropped next to the video so the browser can
+        # show a near-real-time view at /edgeout/live.jpg (see Web_dev/live.html).
+        self._live_path = os.path.join(os.path.dirname(path) or ".", "live.jpg")
+        self._live_tmp = self._live_path + ".tmp"
 
     def _open(self, size):
         cv2 = self._cv2
@@ -224,6 +228,26 @@ class PreviewWriter:
             self._open((w, h))
         self._writer.write(canvas)
         self._frames_written += 1
+        self._write_live(canvas)
+
+    def _write_live(self, canvas) -> None:
+        """Drop the latest annotated frame as live.jpg (downscaled) for the web
+        live view. Best-effort: a failed snapshot must never break detection, and
+        the write is atomic so the browser never fetches a half-written image."""
+        try:
+            cv2 = self._cv2
+            h, w = canvas.shape[:2]
+            if w > 960:
+                canvas = cv2.resize(canvas, (960, max(1, round(h * 960 / w))))
+            # imencode picks the format from the ".jpg" arg, not the temp filename,
+            # so the atomic temp path can use a non-image extension safely.
+            ok, buf = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                with open(self._live_tmp, "wb") as f:
+                    f.write(buf)
+                os.replace(self._live_tmp, self._live_path)
+        except Exception:  # noqa: BLE001 — live view is a nicety, detection is not
+            pass
 
     def close(self):
         if self._writer is not None:

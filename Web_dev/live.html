@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UpFound — ภาพสด</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d0d0f; }
+    body { display: flex; flex-direction: column; font-family: system-ui, sans-serif; }
+    #bar {
+      display: flex; align-items: center; gap: 12px;
+      color: #7CFF9B; background: #000; padding: 8px 14px;
+      font: 14px ui-monospace, monospace;
+    }
+    #dot { width: 10px; height: 10px; border-radius: 50%; background: #ff3b30;
+           animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: .25; } }
+    #stat { margin-left: auto; color: #9aa; }
+    #wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    #img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    #hint { color: #667; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <span id="dot"></span><b>LIVE</b>
+    <span id="hint">— up-found.com/live.html</span>
+    <span id="stat">กำลังเชื่อมต่อ…</span>
+  </div>
+  <div id="wrap"><img id="img" alt="รอภาพสดจากกล้อง… (ต้องรัน ./cctv cam หรือ clip อยู่)"></div>
+
+  <script>
+    // Preload the next frame off-screen and swap only once it has decoded, so the
+    // visible image never flickers or shows a partial frame. The ?t= cache-buster
+    // makes every request unique so neither the browser nor Cloudflare serves a
+    // stale copy.
+    var img = document.getElementById("img");
+    var stat = document.getElementById("stat");
+    var shown = 0, t0 = Date.now(), misses = 0;
+
+    function tick() {
+      var next = new Image();
+      next.onload = function () {
+        img.src = next.src;
+        shown++; misses = 0;
+        var dt = (Date.now() - t0) / 1000;
+        if (dt >= 1) { stat.textContent = (shown / dt).toFixed(1) + " fps"; shown = 0; t0 = Date.now(); }
+        setTimeout(tick, 80);            // ~as fast as the network allows
+      };
+      next.onerror = function () {
+        misses++;
+        stat.textContent = misses > 3 ? "ยังไม่มีภาพสด (กล้องรันอยู่ไหม?)" : "รอ…";
+        setTimeout(tick, 600);
+      };
+      next.src = "/edgeout/live.jpg?t=" + Date.now();
+    }
+    tick();
+  </script>
+</body>
+</html>

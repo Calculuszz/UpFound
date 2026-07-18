@@ -22,6 +22,9 @@ EdgeAI/out/contact*
 EdgeAI/out/_*
 # runtime event stream (regenerated; grows large with embeddings)
 EdgeAI/out/events.jsonl
+# live web view snapshot + preview manifest (regenerated every run)
+EdgeAI/out/live.jpg
+EdgeAI/out/previews.txt
 
 # ---- Backend runtime data (sqlite db + user uploads) ----
 backend/data/
