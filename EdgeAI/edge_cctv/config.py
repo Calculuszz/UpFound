@@ -120,14 +120,18 @@ if DETECTOR == "yoloe":
     # Comma-separated text prompts; their ORDER defines the class ids. Keep
     # near-duplicates OUT (e.g. "cell phone" + "smartphone" land on the same box
     # and just make its label flicker), and leave out classes you don't expect —
-    # "book" was firing on a wall poster at 0.55. This default targets the booth's
-    # focus items (wallet + phone) first, then common bags/electronics; measured
-    # per prompt on the real camera: wallet ~0.9, "cell phone" 0.39 (beats
-    # "phone"/"smartphone"). Add "water bottle", "headphones", etc. when needed.
+    # "book" was firing on a wall poster at 0.55.
+    #
+    # Open-vocab is very sensitive to phrasing, PER OBJECT, so each prompt below
+    # is the winner measured on real footage — a bare noun is sometimes blind:
+    #   wallet ~0.9 · "cell phone" 0.39 (beats "phone"/"smartphone")
+    #   "tablet" 0.00 (!) vs "tablet on the table" 0.44 — context is mandatory.
+    # The spatial context is scene-specific: for the overhead camera where items
+    # land on the floor, set EDGE_YOLOE_PROMPTS with "...on the floor" instead.
     YOLOE_PROMPTS = [
         p.strip() for p in os.getenv(
             "EDGE_YOLOE_PROMPTS",
-            "wallet,cell phone,backpack,handbag,laptop,tablet",
+            "wallet,cell phone,backpack,handbag,laptop,tablet on the table",
         ).split(",") if p.strip()
     ]
     ITEM_CLASSES = {i: name for i, name in enumerate(YOLOE_PROMPTS)}
