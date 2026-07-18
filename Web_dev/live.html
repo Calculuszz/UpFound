@@ -30,31 +30,22 @@
   <div id="wrap"><img id="img" alt="รอภาพสดจากกล้อง… (ต้องรัน ./cctv cam หรือ clip อยู่)"></div>
 
   <script>
-    // Preload the next frame off-screen and swap only once it has decoded, so the
-    // visible image never flickers or shows a partial frame. The ?t= cache-buster
-    // makes every request unique so neither the browser nor Cloudflare serves a
-    // stale copy.
+    // One long-lived MJPEG connection — the browser renders each pushed frame
+    // natively, so there's no per-frame HTTP round-trip capping the framerate.
     var img = document.getElementById("img");
     var stat = document.getElementById("stat");
-    var shown = 0, t0 = Date.now(), misses = 0;
 
-    function tick() {
-      var next = new Image();
-      next.onload = function () {
-        img.src = next.src;
-        shown++; misses = 0;
-        var dt = (Date.now() - t0) / 1000;
-        if (dt >= 1) { stat.textContent = (shown / dt).toFixed(1) + " fps"; shown = 0; t0 = Date.now(); }
-        setTimeout(tick, 80);            // ~as fast as the network allows
+    function connect() {
+      stat.textContent = "กำลังเชื่อมต่อ…";
+      img.onload = function () { stat.textContent = "🟢 สด"; };
+      // if the stream drops (backend restart / no frames), reconnect
+      img.onerror = function () {
+        stat.textContent = "หลุด — กำลังต่อใหม่…";
+        setTimeout(connect, 1500);
       };
-      next.onerror = function () {
-        misses++;
-        stat.textContent = misses > 3 ? "ยังไม่มีภาพสด (กล้องรันอยู่ไหม?)" : "รอ…";
-        setTimeout(tick, 600);
-      };
-      next.src = "/edgeout/live.jpg?t=" + Date.now();
+      img.src = "/api/live-stream?t=" + Date.now();
     }
-    tick();
+    connect();
   </script>
 </body>
 </html>

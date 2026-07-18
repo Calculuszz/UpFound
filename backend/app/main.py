@@ -588,6 +588,36 @@ def feed(limit: int = 60):
     return out[:limit]
 
 
+@app.get("/api/live-stream")
+def live_stream():
+    """MJPEG stream of EdgeAI's live.jpg. Polling the jpg over the tunnel cost a
+    ~0.2s round-trip per frame (~4fps ceiling); one long-lived multipart response
+    pushes each new frame with no per-frame handshake, so the view runs at the
+    rate EdgeAI actually writes (~6fps) instead."""
+    from fastapi.responses import StreamingResponse
+
+    live = config.EDGE_OUT_DIR / "live.jpg"
+
+    async def gen():
+        import anyio
+
+        last = None
+        while True:
+            try:
+                m = live.stat().st_mtime_ns
+                if m != last:
+                    last = m
+                    data = live.read_bytes()  # written atomically, never partial
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
+            except (FileNotFoundError, OSError):
+                pass
+            await anyio.sleep(0.03)  # poll the local file ~30x/s; emit only on change
+
+    return StreamingResponse(
+        gen(), media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
 @app.get("/api/reports/{rid}/matches")
 def report_matches(rid: int, user=Depends(security.current_user)):
     with db() as conn:
